@@ -14,7 +14,19 @@ public class RecurringService(AppDbContext dbContext) : IRecurringService
         return await dbContext.RecurringTransactions
             .Where(x => x.UserId == userId)
             .OrderBy(x => x.NextRunDate)
-            .Select(x => new RecurringResponse(x.Id, x.Title, x.Type, x.Amount, x.CategoryId, x.AccountId, x.Frequency, x.NextRunDate, x.AutoCreateTransaction, x.IsPaused))
+            .Select(x => new RecurringResponse(
+                x.Id,
+                x.Title,
+                x.Type,
+                x.Amount,
+                x.CategoryId,
+                x.AccountId,
+                x.Frequency,
+                x.StartDate,
+                x.EndDate,
+                x.NextRunDate,
+                x.AutoCreateTransaction,
+                x.IsPaused))
             .ToListAsync(ct);
     }
 
@@ -38,7 +50,19 @@ public class RecurringService(AppDbContext dbContext) : IRecurringService
 
         dbContext.RecurringTransactions.Add(entity);
         await dbContext.SaveChangesAsync(ct);
-        return new RecurringResponse(entity.Id, entity.Title, entity.Type, entity.Amount, entity.CategoryId, entity.AccountId, entity.Frequency, entity.NextRunDate, entity.AutoCreateTransaction, entity.IsPaused);
+        return new RecurringResponse(
+            entity.Id,
+            entity.Title,
+            entity.Type,
+            entity.Amount,
+            entity.CategoryId,
+            entity.AccountId,
+            entity.Frequency,
+            entity.StartDate,
+            entity.EndDate,
+            entity.NextRunDate,
+            entity.AutoCreateTransaction,
+            entity.IsPaused);
     }
 
     public async Task<RecurringResponse> UpdateAsync(Guid userId, Guid id, RecurringRequest request, CancellationToken ct = default)
@@ -59,7 +83,19 @@ public class RecurringService(AppDbContext dbContext) : IRecurringService
         entity.IsPaused = request.IsPaused;
 
         await dbContext.SaveChangesAsync(ct);
-        return new RecurringResponse(entity.Id, entity.Title, entity.Type, entity.Amount, entity.CategoryId, entity.AccountId, entity.Frequency, entity.NextRunDate, entity.AutoCreateTransaction, entity.IsPaused);
+        return new RecurringResponse(
+            entity.Id,
+            entity.Title,
+            entity.Type,
+            entity.Amount,
+            entity.CategoryId,
+            entity.AccountId,
+            entity.Frequency,
+            entity.StartDate,
+            entity.EndDate,
+            entity.NextRunDate,
+            entity.AutoCreateTransaction,
+            entity.IsPaused);
     }
 
     public async Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default)

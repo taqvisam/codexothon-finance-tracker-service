@@ -17,7 +17,17 @@ public class GoalService(AppDbContext dbContext) : IGoalService
     {
         return await dbContext.Goals
             .Where(x => x.UserId == userId)
-            .Select(x => new GoalResponse(x.Id, x.Name, x.TargetAmount, x.CurrentAmount, x.TargetDate, x.Status, x.TargetAmount == 0 ? 0 : (x.CurrentAmount / x.TargetAmount) * 100))
+            .Select(x => new GoalResponse(
+                x.Id,
+                x.Name,
+                x.TargetAmount,
+                x.CurrentAmount,
+                x.TargetDate,
+                x.LinkedAccountId,
+                x.Icon,
+                x.Color,
+                x.Status,
+                x.TargetAmount == 0 ? 0 : (x.CurrentAmount / x.TargetAmount) * 100))
             .ToListAsync(ct);
     }
 
@@ -39,7 +49,7 @@ public class GoalService(AppDbContext dbContext) : IGoalService
 
         dbContext.Goals.Add(goal);
         await dbContext.SaveChangesAsync(ct);
-        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.Status, 0);
+        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.LinkedAccountId, goal.Icon, goal.Color, goal.Status, 0);
     }
 
     public async Task<GoalResponse> UpdateAsync(Guid userId, Guid id, GoalRequest request, CancellationToken ct = default)
@@ -65,7 +75,7 @@ public class GoalService(AppDbContext dbContext) : IGoalService
 
         await dbContext.SaveChangesAsync(ct);
         var progress = goal.TargetAmount == 0 ? 0 : (goal.CurrentAmount / goal.TargetAmount) * 100;
-        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.Status, progress);
+        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.LinkedAccountId, goal.Icon, goal.Color, goal.Status, progress);
     }
 
     public async Task<GoalResponse> ContributeAsync(Guid userId, Guid id, decimal amount, CancellationToken ct = default)
@@ -97,7 +107,7 @@ public class GoalService(AppDbContext dbContext) : IGoalService
         if (goal.CurrentAmount >= goal.TargetAmount) goal.Status = "completed";
 
         await dbContext.SaveChangesAsync(ct);
-        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.Status, (goal.CurrentAmount / goal.TargetAmount) * 100);
+        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.LinkedAccountId, goal.Icon, goal.Color, goal.Status, (goal.CurrentAmount / goal.TargetAmount) * 100);
     }
 
     public async Task<GoalResponse> WithdrawAsync(Guid userId, Guid id, decimal amount, CancellationToken ct = default)
@@ -117,7 +127,7 @@ public class GoalService(AppDbContext dbContext) : IGoalService
         }
 
         await dbContext.SaveChangesAsync(ct);
-        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.Status, (goal.CurrentAmount / goal.TargetAmount) * 100);
+        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.LinkedAccountId, goal.Icon, goal.Color, goal.Status, (goal.CurrentAmount / goal.TargetAmount) * 100);
     }
 
     public async Task<GoalResponse> SetHoldStatusAsync(Guid userId, Guid id, bool onHold, CancellationToken ct = default)
@@ -134,7 +144,7 @@ public class GoalService(AppDbContext dbContext) : IGoalService
         await dbContext.SaveChangesAsync(ct);
 
         var progress = goal.TargetAmount == 0 ? 0 : (goal.CurrentAmount / goal.TargetAmount) * 100;
-        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.Status, progress);
+        return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.LinkedAccountId, goal.Icon, goal.Color, goal.Status, progress);
     }
 
     public async Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default)
