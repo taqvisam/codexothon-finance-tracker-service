@@ -11,4 +11,4 @@ publish-local/
 *.suo
 *.tmp
 *.log
-
+**/TestResults/
