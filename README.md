@@ -58,6 +58,9 @@ Notes:
 - Startup migrations remain enabled and run automatically.
 - If you use Azure Database for PostgreSQL, SSL is required.
 
+## Deployed URL
+- Service health: `https://finance-tracker-syed-hba2afgqh3bbafeg.centralindia-01.azurewebsites.net/health`
+
 ## Test
 - `dotnet test`
 
