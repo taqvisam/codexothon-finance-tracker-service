@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using PersonalFinanceTracker.Application.DTOs.Budgets;
 using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Application.Services;
@@ -54,7 +55,14 @@ public class BudgetService(AppDbContext dbContext) : IBudgetService
         };
 
         dbContext.Budgets.Add(budget);
-        await dbContext.SaveChangesAsync(ct);
+        try
+        {
+            await dbContext.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState == "23505")
+        {
+            throw new AppException("Budget already exists for category/month.", 409);
+        }
         return new BudgetResponse(budget.Id, budget.CategoryId, budget.Month, budget.Year, budget.Amount, budget.AlertThresholdPercent, 0);
     }
 
@@ -70,7 +78,14 @@ public class BudgetService(AppDbContext dbContext) : IBudgetService
         budget.Year = request.Year;
         budget.Amount = request.Amount;
         budget.AlertThresholdPercent = request.AlertThresholdPercent;
-        await dbContext.SaveChangesAsync(ct);
+        try
+        {
+            await dbContext.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState == "23505")
+        {
+            throw new AppException("Budget already exists for category/month.", 409);
+        }
 
         return new BudgetResponse(budget.Id, budget.CategoryId, budget.Month, budget.Year, budget.Amount, budget.AlertThresholdPercent, 0);
     }
