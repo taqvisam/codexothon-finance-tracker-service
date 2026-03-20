@@ -78,6 +78,12 @@ var allowedOrigins = configuredOrigins
     })
     .Distinct(StringComparer.OrdinalIgnoreCase)
     .ToArray();
+
+var allowedHostSuffixes = new[]
+{
+    ".azurestaticapps.net",
+    ".ngrok-free.dev"
+};
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
@@ -91,6 +97,12 @@ builder.Services.AddCors(options =>
 
                 if (Uri.TryCreate(origin, UriKind.Absolute, out var uri))
                 {
+                    if (allowedHostSuffixes.Any(suffix =>
+                            uri.Host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return true;
+                    }
+
                     var isLocalHost = string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase);
                     if (isLocalHost && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
@@ -146,6 +158,14 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+var forwardedHeadersOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+};
+forwardedHeadersOptions.KnownNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeadersOptions);
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -156,11 +176,6 @@ else
     app.UseHsts();
     app.UseHttpsRedirection();
 }
-
-app.UseForwardedHeaders(new ForwardedHeadersOptions
-{
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
 
 using (var scope = app.Services.CreateScope())
 {
