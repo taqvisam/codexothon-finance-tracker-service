@@ -230,6 +230,16 @@ using (var scope = app.Services.CreateScope())
     {
         logger.LogInformation("Demo data seeding is disabled (DemoSeed:Enabled=false).");
     }
+
+    try
+    {
+        var seededCount = await DefaultCategorySeeder.SeedAsync(db, app.Lifetime.ApplicationStopping);
+        logger.LogInformation("Default category seeding ensured. Inserted {InsertedCount} missing categories.", seededCount);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Default category seeding failed. API startup will continue without default category backfill.");
+    }
 }
 
 app.UseCors("Frontend");
