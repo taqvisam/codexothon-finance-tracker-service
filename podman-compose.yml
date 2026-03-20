@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  db:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-personal_finance_tracker}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:5000
+      ConnectionStrings__Postgres: Host=db;Port=5432;Database=${POSTGRES_DB:-personal_finance_tracker};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      Jwt__Key: ${JWT_KEY:-ChangeThisInProduction_AtLeast32Chars}
+      Jwt__Issuer: ${JWT_ISSUER:-PersonalFinanceTracker}
+      Jwt__Audience: ${JWT_AUDIENCE:-PersonalFinanceTrackerClients}
+      Cors__AllowedOrigins__0: http://localhost:5173
+      Cors__AllowedOrigins__1: http://127.0.0.1:5173
+      DemoSeed__Enabled: ${DEMO_SEED_ENABLED:-true}
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  pgdata:

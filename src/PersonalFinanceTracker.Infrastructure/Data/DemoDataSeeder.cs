@@ -13,6 +13,12 @@ public static class DemoDataSeeder
 
     public static async Task SeedAsync(AppDbContext dbContext, CancellationToken ct = default)
     {
+        // If database already has user data, skip reseeding to avoid overwriting existing records.
+        if (await dbContext.Users.AnyAsync(ct))
+        {
+            return;
+        }
+
         var now = DateTime.UtcNow;
         var today = DateOnly.FromDateTime(now);
         var currentMonth = today.Month;
@@ -21,18 +27,8 @@ public static class DemoDataSeeder
         var demoUser = await EnsureUserAsync(dbContext, DemoEmail, "Demo User", DemoPassword, ct);
         var secondaryUser = await EnsureUserAsync(dbContext, SecondaryEmail, "Secondary User", SecondaryPassword, ct);
 
-        await RemoveUserFinancialDataAsync(dbContext, demoUser.Id, ct);
         await SeedDemoUserDataAsync(dbContext, demoUser, today, currentMonth, currentYear, now, ct);
         await EnsureSecondaryUserBaseDataAsync(dbContext, secondaryUser, currentMonth, currentYear, now, ct);
-
-        // Cleanup legacy demo identity if it exists from older builds.
-        var legacyUser = await dbContext.Users.FirstOrDefaultAsync(x => x.Email == "demo@finance.local", ct);
-        if (legacyUser is not null)
-        {
-            await RemoveUserFinancialDataAsync(dbContext, legacyUser.Id, ct);
-            dbContext.Users.Remove(legacyUser);
-            await dbContext.SaveChangesAsync(ct);
-        }
     }
 
     private static async Task<User> EnsureUserAsync(
@@ -68,25 +64,6 @@ public static class DemoDataSeeder
         }
 
         return user;
-    }
-
-    private static async Task RemoveUserFinancialDataAsync(AppDbContext dbContext, Guid userId, CancellationToken ct)
-    {
-        var transactions = await dbContext.Transactions.Where(x => x.UserId == userId).ToListAsync(ct);
-        var recurring = await dbContext.RecurringTransactions.Where(x => x.UserId == userId).ToListAsync(ct);
-        var budgets = await dbContext.Budgets.Where(x => x.UserId == userId).ToListAsync(ct);
-        var goals = await dbContext.Goals.Where(x => x.UserId == userId).ToListAsync(ct);
-        var categories = await dbContext.Categories.Where(x => x.UserId == userId).ToListAsync(ct);
-        var accounts = await dbContext.Accounts.Where(x => x.UserId == userId).ToListAsync(ct);
-
-        if (transactions.Count > 0) dbContext.Transactions.RemoveRange(transactions);
-        if (recurring.Count > 0) dbContext.RecurringTransactions.RemoveRange(recurring);
-        if (budgets.Count > 0) dbContext.Budgets.RemoveRange(budgets);
-        if (goals.Count > 0) dbContext.Goals.RemoveRange(goals);
-        if (categories.Count > 0) dbContext.Categories.RemoveRange(categories);
-        if (accounts.Count > 0) dbContext.Accounts.RemoveRange(accounts);
-
-        await dbContext.SaveChangesAsync(ct);
     }
 
     private static async Task SeedDemoUserDataAsync(

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Linq;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
@@ -160,20 +161,56 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 
 using (var scope = app.Services.CreateScope())
 {
-    try
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var migrationRetryCount = Math.Max(1, app.Configuration.GetValue("Database:MigrateRetryCount", 10));
+    var migrationRetryDelaySeconds = Math.Max(1, app.Configuration.GetValue("Database:MigrateRetryDelaySeconds", 5));
+
+    for (var attempt = 1; attempt <= migrationRetryCount; attempt++)
     {
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        db.Database.Migrate();
-        await DemoDataSeeder.SeedAsync(db);
+        try
+        {
+            await db.Database.MigrateAsync(app.Lifetime.ApplicationStopping);
+            logger.LogInformation("Database migration succeeded.");
+            break;
+        }
+        catch (Exception ex) when (attempt < migrationRetryCount)
+        {
+            logger.LogWarning(
+                ex,
+                "Database migration attempt {Attempt}/{MaxAttempts} failed. Retrying in {DelaySeconds} seconds.",
+                attempt,
+                migrationRetryCount,
+                migrationRetryDelaySeconds);
+
+            await Task.Delay(TimeSpan.FromSeconds(migrationRetryDelaySeconds), app.Lifetime.ApplicationStopping);
+        }
+        catch (Exception ex)
+        {
+            logger.LogCritical(ex, "Database startup check failed. Ensure PostgreSQL is running and the connection string is valid.");
+            throw new InvalidOperationException(
+                "Startup failed: database is unavailable or migration failed. " +
+                "Start PostgreSQL and verify ConnectionStrings:Postgres before running the API.",
+                ex);
+        }
     }
-    catch (Exception ex)
+
+    var demoSeedEnabled = app.Configuration.GetValue("DemoSeed:Enabled", true);
+    if (demoSeedEnabled)
     {
-        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
-        logger.LogCritical(ex, "Database startup check failed. Ensure PostgreSQL is running and the connection string is valid.");
-        throw new InvalidOperationException(
-            "Startup failed: database is unavailable or migration failed. " +
-            "Start PostgreSQL and verify ConnectionStrings:Postgres before running the API.",
-            ex);
+        try
+        {
+            await DemoDataSeeder.SeedAsync(db, app.Lifetime.ApplicationStopping);
+            logger.LogInformation("Demo data seeding completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Demo data seeding failed. API startup will continue without seeded data.");
+        }
+    }
+    else
+    {
+        logger.LogInformation("Demo data seeding is disabled (DemoSeed:Enabled=false).");
     }
 }
 
