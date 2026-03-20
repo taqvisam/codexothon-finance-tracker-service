@@ -1,0 +1,45 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  buildConfiguration: "Release"
+
+stages:
+  - stage: BuildTestPublish
+    jobs:
+      - job: Build
+        steps:
+          - task: UseDotNet@2
+            inputs:
+              packageType: "sdk"
+              version: "8.0.x"
+          - script: dotnet restore PersonalFinanceTracker.sln
+          - script: dotnet build PersonalFinanceTracker.sln -c $(buildConfiguration) --no-restore
+          - script: dotnet test PersonalFinanceTracker.sln -c $(buildConfiguration) --no-build
+          - script: dotnet publish src/PersonalFinanceTracker.Api/PersonalFinanceTracker.Api.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: "$(Build.ArtifactStagingDirectory)"
+              ArtifactName: "backend-drop"
+
+  - stage: Deploy
+    dependsOn: BuildTestPublish
+    jobs:
+      - deployment: DeployToAppService
+        environment: "prod-backend"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: backend-drop
+                - task: AzureWebApp@1
+                  inputs:
+                    azureSubscription: "$(AZURE_SERVICE_CONNECTION)"
+                    appName: "$(AZURE_APP_SERVICE_NAME)"
+                    package: "$(Pipeline.Workspace)/backend-drop"

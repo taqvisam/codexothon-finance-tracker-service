@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+.idea/
+.vscode/
+
+.publish/
+publish-local/
+
+*.user
+*.suo
+*.tmp
+*.log
+
