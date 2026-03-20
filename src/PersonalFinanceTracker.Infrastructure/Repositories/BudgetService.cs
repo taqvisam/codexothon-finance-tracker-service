@@ -38,6 +38,7 @@ public class BudgetService(AppDbContext dbContext) : IBudgetService
     public async Task<BudgetResponse> CreateAsync(Guid userId, BudgetRequest request, CancellationToken ct = default)
     {
         await _validator.ValidateAndThrowAsync(request, ct);
+        await EnsureBudgetCategoryIsValidAsync(userId, request.CategoryId, ct);
 
         var exists = await dbContext.Budgets.AnyAsync(x => x.UserId == userId && x.CategoryId == request.CategoryId && x.Month == request.Month && x.Year == request.Year, ct);
         if (exists) throw new AppException("Budget already exists for category/month.", 409);
@@ -60,6 +61,7 @@ public class BudgetService(AppDbContext dbContext) : IBudgetService
     public async Task<BudgetResponse> UpdateAsync(Guid userId, Guid id, BudgetRequest request, CancellationToken ct = default)
     {
         await _validator.ValidateAndThrowAsync(request, ct);
+        await EnsureBudgetCategoryIsValidAsync(userId, request.CategoryId, ct);
         var budget = await dbContext.Budgets.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId, ct)
             ?? throw new AppException("Budget not found.", 404);
 
@@ -108,5 +110,23 @@ public class BudgetService(AppDbContext dbContext) : IBudgetService
 
         await dbContext.SaveChangesAsync(ct);
         return created;
+    }
+
+    private async Task EnsureBudgetCategoryIsValidAsync(Guid userId, Guid categoryId, CancellationToken ct)
+    {
+        var category = await dbContext.Categories
+            .Where(x => x.Id == categoryId && x.UserId == userId)
+            .Select(x => new { x.Id, x.Type })
+            .FirstOrDefaultAsync(ct);
+
+        if (category is null)
+        {
+            throw new AppException("Category not found for current user.", 404);
+        }
+
+        if (category.Type != CategoryType.Expense)
+        {
+            throw new AppException("Budgets can only be created for expense categories.", 400);
+        }
     }
 }

@@ -69,5 +69,5 @@ Notes:
   - `password: Demo@123`
 
 - Additional demo user:
-  - email: test@finance.com
+  - email: test@amiti.in
   - password: Test@123
