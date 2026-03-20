@@ -64,10 +64,6 @@ Notes:
 ## Notes
 - Project targets `.NET 8` (`net8.0`).
 - All API routes are under `/api`.
-- Demo seed user is auto-created on startup:
-  - `email: demo@finance.com`
-  - `password: Demo@123`
-
-- Additional demo user:
+- Test user:
   - email: test@amiti.in
   - password: Test@123
