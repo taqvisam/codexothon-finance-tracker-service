@@ -16,6 +16,16 @@ using PersonalFinanceTracker.Infrastructure.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var configuredUrls = builder.Configuration["ASPNETCORE_URLS"];
+if (string.IsNullOrWhiteSpace(configuredUrls))
+{
+    var azurePort = Environment.GetEnvironmentVariable("PORT") ?? Environment.GetEnvironmentVariable("WEBSITES_PORT");
+    if (!string.IsNullOrWhiteSpace(azurePort))
+    {
+        builder.WebHost.UseUrls($"http://0.0.0.0:{azurePort}");
+    }
+}
+
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
