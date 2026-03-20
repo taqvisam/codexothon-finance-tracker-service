@@ -35,12 +35,6 @@ public static class DependencyInjection
 
     private static string ResolvePostgresConnectionString(IConfiguration config)
     {
-        var explicitConnectionString = config.GetConnectionString("Postgres");
-        if (!string.IsNullOrWhiteSpace(explicitConnectionString))
-        {
-            return explicitConnectionString;
-        }
-
         var jdbcUrl =
             config["Database:JdbcUrl"] ??
             config["Database:Url"] ??
@@ -48,9 +42,15 @@ public static class DependencyInjection
 
         if (string.IsNullOrWhiteSpace(jdbcUrl))
         {
+            var explicitConnectionString = config.GetConnectionString("Postgres");
+            if (!string.IsNullOrWhiteSpace(explicitConnectionString))
+            {
+                return explicitConnectionString;
+            }
+
             throw new InvalidOperationException(
-                "Missing database configuration. Set ConnectionStrings:Postgres " +
-                "or Database:JdbcUrl (optionally with Database:Username/Database:Password).");
+                "Missing database configuration. Set Database:JdbcUrl " +
+                "(optionally with Database:Username/Database:Password) or ConnectionStrings:Postgres.");
         }
 
         var normalizedUrl = jdbcUrl.StartsWith("jdbc:", StringComparison.OrdinalIgnoreCase)
