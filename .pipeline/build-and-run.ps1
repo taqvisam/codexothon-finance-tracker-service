@@ -32,8 +32,8 @@ try {
     Start-Sleep -Seconds 8
 
     Write-Host ""
-    Write-Host "==> Running health check: http://localhost:5000/swagger" -ForegroundColor Cyan
-    $response = Invoke-WebRequest -Uri "http://localhost:5000/swagger" -UseBasicParsing -TimeoutSec 15
+    Write-Host "==> Running health check: http://localhost:5000/health" -ForegroundColor Cyan
+    $response = Invoke-WebRequest -Uri "http://localhost:5000/health" -UseBasicParsing -TimeoutSec 15
     if ($response.StatusCode -ne 200) {
         throw "Health check failed: expected HTTP 200, got $($response.StatusCode)"
     }
