@@ -43,6 +43,21 @@ Expected JSON:
    - API: `http://localhost:5000`
    - Health: `http://localhost:5000/health`
 
+## Azure App Service DB Settings
+Use one of the following approaches in **App Service > Configuration > Application settings**:
+
+1. Direct connection string:
+   - `ConnectionStrings__Postgres=Host=<host>;Port=5432;Database=<db>;Username=<user>;Password=<password>;SSL Mode=Require;Trust Server Certificate=true`
+
+2. JDBC URL with separate credentials:
+   - `Database__JdbcUrl=jdbc:postgresql://<host>:5432/<db>`
+   - `Database__Username=<user>`
+   - `Database__Password=<password>`
+
+Notes:
+- Startup migrations remain enabled and run automatically.
+- If you use Azure Database for PostgreSQL, SSL is required.
+
 ## Test
 - `dotnet test`
 
