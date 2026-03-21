@@ -27,6 +27,8 @@ public static class DependencyInjection
         services.AddScoped<IRecurringService, RecurringService>();
         services.AddScoped<IReportService, ReportService>();
         services.AddScoped<IUserProfileService, UserProfileService>();
+        services.AddScoped<IForecastService, ForecastService>();
+        services.AddScoped<IInsightsService, InsightsService>();
 
         services.AddHostedService<RecurringTransactionWorker>();
 
