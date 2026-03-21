@@ -70,6 +70,15 @@ public class AuthController(IAuthService authService) : ControllerBase
     }
 
     [Authorize]
+    [EnableRateLimiting("auth-sensitive")]
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
+    {
+        await authService.ChangePasswordAsync(User.GetUserId(), request, ct);
+        return Ok(new { message = "Password changed successfully. Please login again." });
+    }
+
+    [Authorize]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout(CancellationToken ct)
     {

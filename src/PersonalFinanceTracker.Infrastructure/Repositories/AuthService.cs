@@ -25,6 +25,7 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
     private readonly RefreshRequestValidator _refreshValidator = new();
     private readonly ForgotPasswordRequestValidator _forgotPasswordValidator = new();
     private readonly ResetPasswordRequestValidator _resetPasswordValidator = new();
+    private readonly ChangePasswordRequestValidator _changePasswordValidator = new();
     private readonly OAuthLoginRequestValidator _oauthValidator = new();
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -233,6 +234,34 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
         user.ResetPasswordTokenHash = null;
         user.ResetPasswordTokenExpiresAt = null;
+        await dbContext.SaveChangesAsync(ct);
+    }
+
+    public async Task ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken ct = default)
+    {
+        await _changePasswordValidator.ValidateAndThrowAsync(request, ct);
+
+        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Id == userId, ct)
+            ?? throw new AppException("User not found.", 404);
+
+        if (string.IsNullOrWhiteSpace(user.PasswordHash))
+        {
+            throw new AppException("Password change is unavailable for this account.", 400);
+        }
+
+        if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            throw new AppException("Current password is incorrect.", 401);
+        }
+
+        if (request.CurrentPassword == request.NewPassword)
+        {
+            throw new AppException("New password must be different from current password.", 400);
+        }
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.RefreshTokenHash = null;
+        user.RefreshTokenExpiresAt = null;
         await dbContext.SaveChangesAsync(ct);
     }
 

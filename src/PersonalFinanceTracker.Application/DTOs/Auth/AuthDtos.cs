@@ -5,6 +5,7 @@ public record LoginRequest(string Email, string Password);
 public record RefreshRequest(string RefreshToken);
 public record ForgotPasswordRequest(string Email);
 public record ResetPasswordRequest(string Email, string Token, string NewPassword);
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword, string ConfirmPassword);
 public record OAuthLoginRequest(
     string Provider,
     string? IdToken,
