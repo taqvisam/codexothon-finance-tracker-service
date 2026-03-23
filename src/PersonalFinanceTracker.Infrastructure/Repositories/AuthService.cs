@@ -133,12 +133,14 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
 
         string? normalizedEmail = null;
         string? displayName = request.DisplayName;
+        string? profileImageUrl = null;
 
         if (!string.IsNullOrWhiteSpace(request.IdToken))
         {
             var payload = await VerifyGoogleTokenAsync(request.IdToken, ct);
             normalizedEmail = payload.Email?.Trim().ToLowerInvariant();
             displayName = string.IsNullOrWhiteSpace(displayName) ? payload.Name : displayName;
+            profileImageUrl = payload.Picture;
         }
         else
         {
@@ -168,11 +170,25 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
             {
                 Email = normalizedEmail,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? "OAuth User" : displayName,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)))
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))),
+                ProfileImageUrl = string.IsNullOrWhiteSpace(profileImageUrl) ? null : profileImageUrl
             };
             dbContext.Users.Add(user);
             AddDefaultCategories(user.Id);
             await dbContext.SaveChangesAsync(ct);
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(displayName))
+            {
+                user.DisplayName = displayName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profileImageUrl))
+            {
+                // Keep Google profile image in sync for OAuth sign-ins.
+                user.ProfileImageUrl = profileImageUrl;
+            }
         }
 
         return await BuildAuthResponseAsync(user, ct);

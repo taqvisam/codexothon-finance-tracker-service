@@ -25,6 +25,7 @@ services:
       Jwt__Key: ${JWT_KEY:-ChangeThisInProduction_AtLeast32Chars}
       Jwt__Issuer: ${JWT_ISSUER:-PersonalFinanceTracker}
       Jwt__Audience: ${JWT_AUDIENCE:-PersonalFinanceTrackerClients}
+      OAuth__Google__ClientId: ${OAUTH_GOOGLE_CLIENT_ID:-}
       Cors__AllowedOrigins__0: http://localhost:5173
       Cors__AllowedOrigins__1: http://127.0.0.1:5173
       DemoSeed__Enabled: ${DEMO_SEED_ENABLED:-true}

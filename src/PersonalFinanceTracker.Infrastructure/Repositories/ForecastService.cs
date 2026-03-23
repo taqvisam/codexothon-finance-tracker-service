@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PersonalFinanceTracker.Application.DTOs.Forecast;
 using PersonalFinanceTracker.Application.Interfaces;
-using PersonalFinanceTracker.Domain.Entities;
 using PersonalFinanceTracker.Domain.Enums;
 using PersonalFinanceTracker.Infrastructure.Data;
 
@@ -12,134 +11,183 @@ public class ForecastService(AppDbContext dbContext) : IForecastService
     public async Task<ForecastMonthResponse> GetMonthForecastAsync(Guid userId, CancellationToken ct = default)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
-        var monthStart = new DateOnly(today.Year, today.Month, 1);
         var monthEnd = new DateOnly(today.Year, today.Month, DateTime.DaysInMonth(today.Year, today.Month));
-
-        var currentBalance = await dbContext.Accounts
-            .Where(x => x.UserId == userId)
-            .SumAsync(x => x.CurrentBalance, ct);
-
-        var (avgMonthlyIncome, avgMonthlyExpense) = await GetHistoricalMonthlyAveragesAsync(userId, monthStart, ct);
-        var (knownIncome, knownExpense) = await GetKnownRecurringTotalsAsync(userId, today, monthEnd, ct);
-
-        var projectedIncome = Math.Max(avgMonthlyIncome, 0m) + knownIncome;
-        var projectedExpense = Math.Max(avgMonthlyExpense, 0m) + knownExpense;
-        var forecastedEndBalance = currentBalance + projectedIncome - projectedExpense;
-        var safeToSpend = Math.Max(0m, forecastedEndBalance);
-
-        var warnings = BuildWarnings(forecastedEndBalance, projectedExpense, currentBalance);
+        var result = await BuildForecastResultAsync(userId, today, monthEnd, ct);
 
         return new ForecastMonthResponse(
             today.Year,
             today.Month,
-            Math.Round(currentBalance, 2),
-            Math.Round(projectedIncome, 2),
-            Math.Round(projectedExpense, 2),
-            Math.Round(knownExpense, 2),
-            Math.Round(forecastedEndBalance, 2),
-            Math.Round(safeToSpend, 2),
-            warnings);
+            Math.Round(result.CurrentBalance, 2),
+            Math.Round(result.ProjectedIncome, 2),
+            Math.Round(result.ProjectedExpense, 2),
+            Math.Round(result.UpcomingKnownExpenses, 2),
+            Math.Round(result.ForecastedEndBalance, 2),
+            Math.Round(result.SafeToSpend, 2),
+            Math.Round(result.ConfidenceScore, 1),
+            result.Model,
+            result.EstimatedNegativeDate?.ToString("yyyy-MM-dd"),
+            result.RiskWarnings);
     }
 
     public async Task<IReadOnlyList<DailyForecastPoint>> GetDailyForecastAsync(Guid userId, CancellationToken ct = default)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
         var monthEnd = new DateOnly(today.Year, today.Month, DateTime.DaysInMonth(today.Year, today.Month));
+        var result = await BuildForecastResultAsync(userId, today, monthEnd, ct);
+        return result.DailyPoints;
+    }
 
+    private async Task<ForecastComputationResult> BuildForecastResultAsync(
+        Guid userId,
+        DateOnly from,
+        DateOnly to,
+        CancellationToken ct)
+    {
         var currentBalance = await dbContext.Accounts
             .Where(x => x.UserId == userId)
             .SumAsync(x => x.CurrentBalance, ct);
 
-        var (avgMonthlyIncome, avgMonthlyExpense) = await GetHistoricalMonthlyAveragesAsync(
-            userId,
-            new DateOnly(today.Year, today.Month, 1),
-            ct);
-
-        var remainingDays = Math.Max(1, monthEnd.DayNumber - today.DayNumber + 1);
-        var dailyIncome = avgMonthlyIncome / remainingDays;
-        var dailyExpense = avgMonthlyExpense / remainingDays;
-
-        var recurrences = await dbContext.RecurringTransactions
-            .Where(x =>
-                x.UserId == userId &&
-                !x.IsPaused &&
-                x.NextRunDate <= monthEnd &&
-                (x.EndDate == null || x.EndDate >= today))
-            .ToListAsync(ct);
-
-        var recurringByDate = new Dictionary<DateOnly, decimal>();
-        foreach (var recurring in recurrences)
-        {
-            var runDate = recurring.NextRunDate < today ? today : recurring.NextRunDate;
-            while (runDate <= monthEnd)
-            {
-                var delta = recurring.Type == TransactionType.Income ? recurring.Amount : -recurring.Amount;
-                recurringByDate[runDate] = recurringByDate.TryGetValue(runDate, out var existing)
-                    ? existing + delta
-                    : delta;
-                runDate = GetNextRunDate(runDate, recurring.Frequency);
-            }
-        }
+        var (model, dailyProfile, historyCoverageDays) = await GetDailyProfileAsync(userId, from, ct);
+        var recurringDeltas = await GetRecurringDailyDeltasAsync(userId, from, to, ct);
 
         var points = new List<DailyForecastPoint>();
-        var balance = currentBalance;
-        for (var date = today; date <= monthEnd; date = date.AddDays(1))
-        {
-            balance += dailyIncome;
-            balance -= dailyExpense;
+        var running = currentBalance;
+        decimal projectedIncome = 0m;
+        decimal projectedExpense = 0m;
+        decimal upcomingKnownExpenses = 0m;
+        DateOnly? firstNegativeDate = null;
 
-            if (recurringByDate.TryGetValue(date, out var recurringDelta))
+        for (var date = from; date <= to; date = date.AddDays(1))
+        {
+            var dayType = IsWeekend(date) ? ForecastDayType.Weekend : ForecastDayType.Weekday;
+            var daily = dailyProfile[dayType];
+            var recurring = recurringDeltas.TryGetValue(date, out var delta)
+                ? delta
+                : new RecurringDayDelta(0m, 0m, 0m);
+
+            var dayIncome = daily.Income + recurring.Income;
+            var dayExpense = daily.Expense + recurring.Expense;
+            running += dayIncome - dayExpense;
+
+            projectedIncome += dayIncome;
+            projectedExpense += dayExpense;
+            upcomingKnownExpenses += recurring.Expense;
+
+            if (running < 0m && firstNegativeDate is null)
             {
-                balance += recurringDelta;
+                firstNegativeDate = date;
             }
 
-            points.Add(new DailyForecastPoint(date.ToString("yyyy-MM-dd"), Math.Round(balance, 2)));
+            points.Add(new DailyForecastPoint(date.ToString("yyyy-MM-dd"), Math.Round(running, 2)));
         }
 
-        return points;
+        var forecastedEndBalance = points.LastOrDefault()?.ProjectedBalance ?? currentBalance;
+        var reserve = Math.Max(projectedExpense * 0.10m, 0m);
+        var safeToSpend = Math.Max(0m, forecastedEndBalance - reserve);
+        var confidenceScore = ComputeConfidenceScore(historyCoverageDays, recurringDeltas.Count);
+        var warnings = BuildWarnings(forecastedEndBalance, projectedExpense, currentBalance, firstNegativeDate, confidenceScore);
+
+        return new ForecastComputationResult(
+            currentBalance,
+            projectedIncome,
+            projectedExpense,
+            upcomingKnownExpenses,
+            forecastedEndBalance,
+            safeToSpend,
+            confidenceScore,
+            model,
+            firstNegativeDate,
+            warnings,
+            points);
     }
 
-    private async Task<(decimal AvgIncome, decimal AvgExpense)> GetHistoricalMonthlyAveragesAsync(
+    private async Task<(string Model, Dictionary<ForecastDayType, DayAverage> Profile, int CoverageDays)> GetDailyProfileAsync(
         Guid userId,
-        DateOnly currentMonthStart,
+        DateOnly today,
         CancellationToken ct)
     {
-        var lookBackStart = currentMonthStart.AddMonths(-6);
-
+        var lookBackStart = today.AddDays(-90);
         var history = await dbContext.Transactions
             .Where(x =>
                 x.UserId == userId &&
                 x.TransactionDate >= lookBackStart &&
-                x.TransactionDate < currentMonthStart &&
+                x.TransactionDate < today &&
                 x.Type != TransactionType.Transfer)
+            .Select(x => new { x.TransactionDate, x.Type, x.Amount })
             .ToListAsync(ct);
 
         if (history.Count == 0)
         {
+            var fallbackStart = today.AddDays(-30);
             var fallback = await dbContext.Transactions
                 .Where(x =>
                     x.UserId == userId &&
-                    x.TransactionDate >= currentMonthStart &&
-                    x.TransactionDate <= DateOnly.FromDateTime(DateTime.UtcNow.Date) &&
+                    x.TransactionDate >= fallbackStart &&
+                    x.TransactionDate < today &&
                     x.Type != TransactionType.Transfer)
+                .Select(x => new { x.TransactionDate, x.Type, x.Amount })
                 .ToListAsync(ct);
 
+            var flatIncome = fallback.Where(x => x.Type == TransactionType.Income).Sum(x => x.Amount) / 30m;
+            var flatExpense = fallback.Where(x => x.Type == TransactionType.Expense).Sum(x => x.Amount) / 30m;
             return (
-                fallback.Where(x => x.Type == TransactionType.Income).Sum(x => x.Amount),
-                fallback.Where(x => x.Type == TransactionType.Expense).Sum(x => x.Amount));
+                "Sparse fallback average",
+                new Dictionary<ForecastDayType, DayAverage>
+                {
+                    [ForecastDayType.Weekday] = new DayAverage(flatIncome, flatExpense),
+                    [ForecastDayType.Weekend] = new DayAverage(flatIncome, flatExpense)
+                },
+                fallback.Select(x => x.TransactionDate).Distinct().Count());
         }
 
-        var monthGroups = history
-            .GroupBy(x => $"{x.TransactionDate.Year}-{x.TransactionDate.Month:00}")
+        var rows = history
+            .Where(x =>
+                x.TransactionDate >= lookBackStart &&
+                x.TransactionDate < today)
             .ToList();
 
-        var averageIncome = monthGroups.Average(g => g.Where(x => x.Type == TransactionType.Income).Sum(x => x.Amount));
-        var averageExpense = monthGroups.Average(g => g.Where(x => x.Type == TransactionType.Expense).Sum(x => x.Amount));
+        DayAverage BuildAverage(ForecastDayType dayType)
+        {
+            var pool = rows.Where(x => (IsWeekend(x.TransactionDate) ? ForecastDayType.Weekend : ForecastDayType.Weekday) == dayType).ToList();
+            if (pool.Count == 0)
+            {
+                pool = rows;
+            }
 
-        return (averageIncome, averageExpense);
+            var grouped = pool
+                .GroupBy(x => x.TransactionDate)
+                .Select(group =>
+                {
+                    var distance = Math.Max(1, today.DayNumber - group.Key.DayNumber);
+                    var recencyWeight = distance <= 30 ? 3m : distance <= 60 ? 2m : 1m;
+                    var income = group.Where(x => x.Type == TransactionType.Income).Sum(x => x.Amount);
+                    var expense = group.Where(x => x.Type == TransactionType.Expense).Sum(x => x.Amount);
+                    return new WeightedDay(income, expense, recencyWeight);
+                })
+                .ToList();
+
+            var sumWeight = grouped.Sum(x => x.Weight);
+            if (sumWeight <= 0m)
+            {
+                return new DayAverage(0m, 0m);
+            }
+
+            var incomeAverage = grouped.Sum(x => x.Income * x.Weight) / sumWeight;
+            var expenseAverage = grouped.Sum(x => x.Expense * x.Weight) / sumWeight;
+            return new DayAverage(incomeAverage, expenseAverage);
+        }
+
+        return (
+            "Weighted recency weekday/weekend heuristic",
+            new Dictionary<ForecastDayType, DayAverage>
+            {
+                [ForecastDayType.Weekday] = BuildAverage(ForecastDayType.Weekday),
+                [ForecastDayType.Weekend] = BuildAverage(ForecastDayType.Weekend)
+            },
+            rows.Select(x => x.TransactionDate).Distinct().Count());
     }
 
-    private async Task<(decimal KnownIncome, decimal KnownExpense)> GetKnownRecurringTotalsAsync(
+    private async Task<Dictionary<DateOnly, RecurringDayDelta>> GetRecurringDailyDeltasAsync(
         Guid userId,
         DateOnly from,
         DateOnly to,
@@ -153,28 +201,36 @@ public class ForecastService(AppDbContext dbContext) : IForecastService
                 (x.EndDate == null || x.EndDate >= from))
             .ToListAsync(ct);
 
-        var knownIncome = 0m;
-        var knownExpense = 0m;
+        var deltas = new Dictionary<DateOnly, RecurringDayDelta>();
 
         foreach (var item in recurring)
         {
             var runDate = item.NextRunDate < from ? from : item.NextRunDate;
             while (runDate <= to)
             {
+                var existing = deltas.TryGetValue(runDate, out var current)
+                    ? current
+                    : new RecurringDayDelta(0m, 0m, 0m);
+
                 if (item.Type == TransactionType.Income)
                 {
-                    knownIncome += item.Amount;
+                    existing = existing with { Income = existing.Income + item.Amount };
                 }
                 else if (item.Type == TransactionType.Expense)
                 {
-                    knownExpense += item.Amount;
+                    existing = existing with
+                    {
+                        Expense = existing.Expense + item.Amount,
+                        KnownExpenseOnly = existing.KnownExpenseOnly + item.Amount
+                    };
                 }
 
+                deltas[runDate] = existing;
                 runDate = GetNextRunDate(runDate, item.Frequency);
             }
         }
 
-        return (knownIncome, knownExpense);
+        return deltas;
     }
 
     private static DateOnly GetNextRunDate(DateOnly current, RecurringFrequency frequency)
@@ -187,7 +243,12 @@ public class ForecastService(AppDbContext dbContext) : IForecastService
             _ => current.AddMonths(1)
         };
 
-    private static IReadOnlyList<string> BuildWarnings(decimal forecastedEndBalance, decimal projectedExpense, decimal currentBalance)
+    private static IReadOnlyList<string> BuildWarnings(
+        decimal forecastedEndBalance,
+        decimal projectedExpense,
+        decimal currentBalance,
+        DateOnly? firstNegativeDate,
+        decimal confidenceScore)
     {
         var warnings = new List<string>();
         if (forecastedEndBalance < 0)
@@ -195,12 +256,56 @@ public class ForecastService(AppDbContext dbContext) : IForecastService
             warnings.Add("Negative balance likely by end of month.");
         }
 
+        if (firstNegativeDate.HasValue)
+        {
+            warnings.Add($"Balance may turn negative on {firstNegativeDate:yyyy-MM-dd}.");
+        }
+
         if (projectedExpense > currentBalance * 1.2m)
         {
             warnings.Add("Projected expenses are significantly higher than current balance.");
         }
 
+        if (confidenceScore < 45m)
+        {
+            warnings.Add("Forecast confidence is limited due to sparse historical data.");
+        }
+
         return warnings;
     }
-}
 
+    private static decimal ComputeConfidenceScore(int coverageDays, int recurringPointsCount)
+    {
+        var historyScore = Math.Min(70m, coverageDays * 0.9m);
+        var recurringScore = Math.Min(30m, recurringPointsCount * 1.5m);
+        return Math.Clamp(historyScore + recurringScore, 15m, 100m);
+    }
+
+    private static bool IsWeekend(DateOnly date)
+    {
+        var day = date.DayOfWeek;
+        return day is DayOfWeek.Saturday or DayOfWeek.Sunday;
+    }
+
+    private enum ForecastDayType
+    {
+        Weekday,
+        Weekend
+    }
+
+    private readonly record struct DayAverage(decimal Income, decimal Expense);
+    private readonly record struct RecurringDayDelta(decimal Income, decimal Expense, decimal KnownExpenseOnly);
+    private readonly record struct WeightedDay(decimal Income, decimal Expense, decimal Weight);
+    private readonly record struct ForecastComputationResult(
+        decimal CurrentBalance,
+        decimal ProjectedIncome,
+        decimal ProjectedExpense,
+        decimal UpcomingKnownExpenses,
+        decimal ForecastedEndBalance,
+        decimal SafeToSpend,
+        decimal ConfidenceScore,
+        string Model,
+        DateOnly? EstimatedNegativeDate,
+        IReadOnlyList<string> RiskWarnings,
+        IReadOnlyList<DailyForecastPoint> DailyPoints);
+}

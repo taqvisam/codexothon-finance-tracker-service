@@ -9,7 +9,9 @@ public record ForecastMonthResponse(
     decimal UpcomingKnownExpenses,
     decimal ForecastedEndBalance,
     decimal SafeToSpend,
+    decimal ConfidenceScore,
+    string Model,
+    string? EstimatedNegativeDate,
     IReadOnlyList<string> RiskWarnings);
 
 public record DailyForecastPoint(string Date, decimal ProjectedBalance);
-
