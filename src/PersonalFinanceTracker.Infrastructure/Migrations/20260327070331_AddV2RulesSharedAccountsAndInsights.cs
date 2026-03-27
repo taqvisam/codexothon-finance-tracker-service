@@ -11,9 +11,8 @@ namespace PersonalFinanceTracker.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "ix_budgets_user_month_year",
-                table: "budgets");
+            migrationBuilder.Sql(@"DROP INDEX IF EXISTS ix_budgets_user_month_year;");
+            migrationBuilder.Sql(@"DROP INDEX IF EXISTS ix_budgets_user_category_month_year;");
 
             migrationBuilder.AddColumn<Guid>(
                 name: "AccountId",
@@ -177,9 +176,9 @@ namespace PersonalFinanceTracker.Infrastructure.Migrations
                 table: "budgets");
 
             migrationBuilder.CreateIndex(
-                name: "ix_budgets_user_month_year",
+                name: "ix_budgets_user_category_month_year",
                 table: "budgets",
-                columns: new[] { "UserId", "Month", "Year" },
+                columns: new[] { "UserId", "CategoryId", "Month", "Year" },
                 unique: true);
         }
     }
