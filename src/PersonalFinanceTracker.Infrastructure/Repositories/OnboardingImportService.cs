@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using PersonalFinanceTracker.Application.DTOs.Onboarding;
+using PersonalFinanceTracker.Application.DTOs.Rules;
 using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Application.Services;
 using PersonalFinanceTracker.Domain.Entities;
@@ -10,6 +12,8 @@ namespace PersonalFinanceTracker.Infrastructure.Repositories;
 
 public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImportService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     public async Task<OnboardingImportResponse> ImportAsync(Guid userId, OnboardingImportRequest request, CancellationToken ct = default)
     {
         if (request.Accounts.Count == 0)
@@ -21,7 +25,9 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
             await dbContext.Accounts.AnyAsync(x => x.UserId == userId, ct) ||
             await dbContext.Transactions.AnyAsync(x => x.UserId == userId, ct) ||
             await dbContext.Budgets.AnyAsync(x => x.UserId == userId, ct) ||
-            await dbContext.Goals.AnyAsync(x => x.UserId == userId, ct);
+            await dbContext.Goals.AnyAsync(x => x.UserId == userId, ct) ||
+            await dbContext.RecurringTransactions.AnyAsync(x => x.UserId == userId, ct) ||
+            await dbContext.Rules.AnyAsync(x => x.UserId == userId, ct);
 
         if (hasExistingData)
         {
@@ -109,11 +115,28 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
             EnsureCategory(row.Category, CategoryType.Expense);
         }
 
+        foreach (var row in request.Recurring.Where(x => !IsTransferType(x.Type)))
+        {
+            var recurringType = ParseTransactionType(row.Type);
+            var categoryType = recurringType == TransactionType.Income ? CategoryType.Income : CategoryType.Expense;
+            EnsureCategory(string.IsNullOrWhiteSpace(row.Category) ? "Others" : row.Category!, categoryType);
+        }
+
         foreach (var row in request.Transactions.Where(x => !IsTransferType(x.Type)))
         {
             var transactionType = ParseTransactionType(row.Type);
             var categoryType = transactionType == TransactionType.Income ? CategoryType.Income : CategoryType.Expense;
             EnsureCategory(string.IsNullOrWhiteSpace(row.Category) ? "Others" : row.Category!, categoryType);
+        }
+
+        foreach (var row in request.Rules.Where(x => x.ActionType == RuleActionType.SetCategory))
+        {
+            var existingCategory = categoriesByKey.Values.FirstOrDefault(x =>
+                string.Equals(x.Name, row.ActionValue.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (existingCategory is null)
+            {
+                EnsureCategory(row.ActionValue, CategoryType.Expense);
+            }
         }
 
         await dbContext.SaveChangesAsync(ct);
@@ -182,6 +205,42 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
             goalsCreated += 1;
         }
 
+        var recurringCreated = 0;
+        foreach (var row in request.Recurring)
+        {
+            var recurringTitle = NormalizeOptional(row.Title);
+            if (recurringTitle is null)
+            {
+                continue;
+            }
+
+            var recurringType = ParseTransactionType(row.Type);
+            var recurringAccount = ResolveRequiredAccount(row.AccountName, accountsByName);
+            Guid? recurringCategoryId = null;
+            if (recurringType != TransactionType.Transfer)
+            {
+                var categoryType = recurringType == TransactionType.Income ? CategoryType.Income : CategoryType.Expense;
+                recurringCategoryId = EnsureCategory(string.IsNullOrWhiteSpace(row.Category) ? "Others" : row.Category!, categoryType).Id;
+            }
+
+            dbContext.RecurringTransactions.Add(new RecurringTransaction
+            {
+                UserId = userId,
+                Title = recurringTitle,
+                Type = recurringType,
+                Amount = row.Amount,
+                CategoryId = recurringCategoryId,
+                AccountId = recurringAccount.Id,
+                Frequency = ParseRecurringFrequency(row.Frequency),
+                StartDate = row.StartDate,
+                EndDate = row.EndDate,
+                NextRunDate = row.NextRunDate,
+                AutoCreateTransaction = row.AutoCreateTransaction,
+                IsPaused = row.IsPaused
+            });
+            recurringCreated += 1;
+        }
+
         var transactionsCreated = 0;
         foreach (var row in request.Transactions.OrderBy(x => x.Date))
         {
@@ -229,6 +288,33 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
             transactionsCreated += 1;
         }
 
+        var rulesCreated = 0;
+        foreach (var row in request.Rules)
+        {
+            var ruleName = NormalizeOptional(row.Name);
+            if (ruleName is null)
+            {
+                continue;
+            }
+
+            dbContext.Rules.Add(new Rule
+            {
+                UserId = userId,
+                Name = ruleName,
+                ConditionJson = JsonSerializer.Serialize(
+                    new RuleConditionDto(row.ConditionField, row.ConditionOperator, row.ConditionValue.Trim()),
+                    JsonOptions),
+                ActionJson = JsonSerializer.Serialize(
+                    new RuleActionDto(row.ActionType, row.ActionValue.Trim()),
+                    JsonOptions),
+                Priority = row.Priority,
+                IsActive = row.IsActive,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+            rulesCreated += 1;
+        }
+
         await dbContext.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
@@ -237,7 +323,9 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
             CategoriesCreated: createdCategoryCount,
             BudgetsCreated: budgetsCreated,
             GoalsCreated: goalsCreated,
-            TransactionsCreated: transactionsCreated);
+            TransactionsCreated: transactionsCreated,
+            RecurringCreated: recurringCreated,
+            RulesCreated: rulesCreated);
     }
 
     private static AccountType ParseAccountType(string value)
@@ -249,6 +337,11 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
         => Enum.TryParse<TransactionType>(NormalizeOptional(value), true, out var parsed)
             ? parsed
             : throw new AppException($"Unsupported transaction type: {value}", 400);
+
+    private static RecurringFrequency ParseRecurringFrequency(string value)
+        => Enum.TryParse<RecurringFrequency>(NormalizeOptional(value), true, out var parsed)
+            ? parsed
+            : throw new AppException($"Unsupported recurring frequency: {value}", 400);
 
     private static bool IsTransferType(string value)
         => string.Equals(NormalizeOptional(value), TransactionType.Transfer.ToString(), StringComparison.OrdinalIgnoreCase);
