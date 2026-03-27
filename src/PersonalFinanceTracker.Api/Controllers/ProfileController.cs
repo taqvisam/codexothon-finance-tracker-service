@@ -17,16 +17,5 @@ public class ProfileController(IUserProfileService userProfileService) : Control
     [HttpPut]
     public async Task<IActionResult> Update([FromBody] UpdateUserProfileRequest request, CancellationToken ct)
         => Ok(await userProfileService.UpdateAsync(User.GetUserId(), request, ct));
-
-    [HttpDelete]
-    public async Task<IActionResult> Delete([FromBody] DeleteUserAccountRequest request, CancellationToken ct)
-    {
-        await userProfileService.DeleteAsync(User.GetUserId(), request, ct);
-        return Ok(new
-        {
-            message = request.DeleteData
-                ? "Your account and data were deleted permanently."
-                : "Your account was removed, but your data is preserved if you sign in again."
-        });
-    }
 }
+

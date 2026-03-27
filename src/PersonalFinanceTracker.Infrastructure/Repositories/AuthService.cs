@@ -79,7 +79,6 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
             throw new AppException("Invalid email/password.", 401);
         }
 
-        ReactivateIfNeeded(user);
         return await BuildAuthResponseAsync(user, ct);
     }
 
@@ -111,7 +110,6 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
             throw new AppException("Invalid refresh token.", 401);
         }
 
-        ReactivateIfNeeded(user);
         return await BuildAuthResponseAsync(user, ct);
     }
 
@@ -193,7 +191,6 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
             }
         }
 
-        ReactivateIfNeeded(user);
         return await BuildAuthResponseAsync(user, ct);
     }
 
@@ -291,15 +288,13 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
         var accessToken = CreateJwt(user, displayName, expires);
         var refreshSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
         var refreshToken = $"{user.Id:N}.{refreshSecret}";
-        var showWelcomeBackMessage = user.ShowWelcomeBackMessage;
 
         user.DisplayName = displayName;
         user.RefreshTokenHash = BCrypt.Net.BCrypt.HashPassword(refreshToken);
         user.RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(14);
-        user.ShowWelcomeBackMessage = false;
         await dbContext.SaveChangesAsync(ct);
 
-        return new AuthResponse(accessToken, refreshToken, expires, user.Email, displayName, user.ProfileImageUrl, showWelcomeBackMessage);
+        return new AuthResponse(accessToken, refreshToken, expires, user.Email, displayName, user.ProfileImageUrl);
     }
 
     private string CreateJwt(User user, string displayName, DateTime expires)
@@ -342,18 +337,6 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
             ct.ThrowIfCancellationRequested();
             throw new AppException("Invalid OAuth token.", 401);
         }
-    }
-
-    private static void ReactivateIfNeeded(User user)
-    {
-        if (!user.IsSoftDeleted)
-        {
-            return;
-        }
-
-        user.IsSoftDeleted = false;
-        user.SoftDeletedAt = null;
-        user.ShowWelcomeBackMessage = true;
     }
 
     private void AddDefaultCategories(Guid userId)

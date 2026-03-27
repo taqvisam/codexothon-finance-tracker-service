@@ -18,8 +18,7 @@ public record AuthResponse(
     DateTime ExpiresAt,
     string Email,
     string DisplayName,
-    string? ProfileImageUrl,
-    bool ShowWelcomeBackMessage);
+    string? ProfileImageUrl);
 
 public record UserProfileResponse(
     string Email,
@@ -32,5 +31,3 @@ public record UpdateUserProfileRequest(
     string Email,
     string? PhoneNumber,
     string? ProfileImageUrl);
-
-public record DeleteUserAccountRequest(bool DeleteData);
