@@ -7,12 +7,13 @@ using PersonalFinanceTracker.Infrastructure.Data;
 
 namespace PersonalFinanceTracker.Infrastructure.Repositories;
 
-public class CategoryService(AppDbContext dbContext) : ICategoryService
+public class CategoryService(AppDbContext dbContext, IAccessControlService accessControlService) : ICategoryService
 {
     public async Task<IReadOnlyList<CategoryResponse>> GetAllAsync(Guid userId, CancellationToken ct = default)
     {
+        var ownerIds = await accessControlService.GetAccessibleAccountOwnerIdsAsync(userId, ct);
         return await dbContext.Categories
-            .Where(x => x.UserId == userId)
+            .Where(x => ownerIds.Contains(x.UserId))
             .OrderBy(x => x.Name)
             .Select(x => new CategoryResponse(x.Id, x.Name, x.Type, x.Color, x.Icon, x.IsArchived))
             .ToListAsync(ct);

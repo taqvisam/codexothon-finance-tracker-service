@@ -187,8 +187,11 @@ else
     app.UseHttpsRedirection();
 }
 
-using (var scope = app.Services.CreateScope())
+var skipStartupInitialization = app.Configuration.GetValue("Database:SkipStartupInitialization", false);
+
+if (!skipStartupInitialization)
 {
+    using var scope = app.Services.CreateScope();
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var migrationRetryCount = Math.Max(1, app.Configuration.GetValue("Database:MigrateRetryCount", 10));
@@ -250,6 +253,11 @@ using (var scope = app.Services.CreateScope())
     {
         logger.LogError(ex, "Default category seeding failed. API startup will continue without default category backfill.");
     }
+}
+else
+{
+    var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+    logger.LogInformation("Skipping database startup initialization because Database:SkipStartupInitialization=true.");
 }
 
 app.UseCors("Frontend");

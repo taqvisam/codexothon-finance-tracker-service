@@ -29,6 +29,10 @@ public static class DependencyInjection
         services.AddScoped<IUserProfileService, UserProfileService>();
         services.AddScoped<IForecastService, ForecastService>();
         services.AddScoped<IInsightsService, InsightsService>();
+        services.AddScoped<IAccessControlService, AccessControlService>();
+        services.AddScoped<IRuleService, RuleService>();
+        services.AddScoped<IRuleEngineService, RuleEngineService>();
+        services.AddScoped<AccountActivityLogger>();
 
         services.AddHostedService<RecurringTransactionWorker>();
 

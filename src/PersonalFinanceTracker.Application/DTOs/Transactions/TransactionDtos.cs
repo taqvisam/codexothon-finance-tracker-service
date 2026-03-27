@@ -14,6 +14,12 @@ public record TransactionRequest(
     Guid? TransferAccountId,
     List<string>? Tags);
 
+public record TransactionImportRequest(IReadOnlyList<TransactionRequest> Items);
+
+public record TransactionImportResponse(
+    int ImportedCount,
+    IReadOnlyList<string> Alerts);
+
 public record TransactionResponse(
     Guid Id,
     Guid AccountId,
@@ -25,4 +31,5 @@ public record TransactionResponse(
     string? Note,
     string? PaymentMethod,
     Guid? TransferAccountId,
-    List<string> Tags);
+    List<string> Tags,
+    List<string>? Alerts = null);

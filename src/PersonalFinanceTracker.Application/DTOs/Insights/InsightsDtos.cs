@@ -6,4 +6,3 @@ public record HealthScoreResponse(
     decimal Score,
     IReadOnlyList<HealthScoreFactor> Breakdown,
     IReadOnlyList<string> Suggestions);
-

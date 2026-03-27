@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PersonalFinanceTracker.Domain.Entities;
+using PersonalFinanceTracker.Domain.Enums;
 
 namespace PersonalFinanceTracker.Infrastructure.Data;
 
@@ -12,6 +13,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<Goal> Goals => Set<Goal>();
     public DbSet<RecurringTransaction> RecurringTransactions => Set<RecurringTransaction>();
+    public DbSet<Rule> Rules => Set<Rule>();
+    public DbSet<AccountMember> AccountMembers => Set<AccountMember>();
+    public DbSet<AccountActivity> AccountActivities => Set<AccountActivity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -37,6 +41,24 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.CurrentBalance).HasPrecision(12, 2);
             e.Property(x => x.InstitutionName).HasMaxLength(120);
             e.HasIndex(x => x.UserId).HasDatabaseName("ix_accounts_user_id");
+        });
+
+        modelBuilder.Entity<AccountMember>(e =>
+        {
+            e.ToTable("account_members");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Role).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => new { x.AccountId, x.UserId }).IsUnique().HasDatabaseName("ix_account_members_account_user");
+        });
+
+        modelBuilder.Entity<AccountActivity>(e =>
+        {
+            e.ToTable("account_activities");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.EntityType).HasMaxLength(50).IsRequired();
+            e.Property(x => x.Action).HasMaxLength(50).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(400).IsRequired();
+            e.HasIndex(x => x.AccountId).HasDatabaseName("ix_account_activities_account_id");
         });
 
         modelBuilder.Entity<Category>(e =>
@@ -65,7 +87,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.ToTable("budgets");
             e.HasKey(x => x.Id);
             e.Property(x => x.Amount).HasPrecision(12, 2);
-            e.HasIndex(x => new { x.UserId, x.CategoryId, x.Month, x.Year }).IsUnique().HasDatabaseName("ix_budgets_user_category_month_year");
+            e.HasIndex(x => new { x.UserId, x.AccountId, x.CategoryId, x.Month, x.Year }).IsUnique().HasDatabaseName("ix_budgets_user_account_category_month_year");
         });
 
         modelBuilder.Entity<Goal>(e =>
@@ -85,6 +107,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(x => x.Id);
             e.Property(x => x.Title).HasMaxLength(120).IsRequired();
             e.Property(x => x.Amount).HasPrecision(12, 2);
+        });
+
+        modelBuilder.Entity<Rule>(e =>
+        {
+            e.ToTable("rules");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            e.Property(x => x.ConditionJson).IsRequired();
+            e.Property(x => x.ActionJson).IsRequired();
+            e.HasIndex(x => new { x.UserId, x.Priority }).HasDatabaseName("ix_rules_user_priority");
         });
     }
 }

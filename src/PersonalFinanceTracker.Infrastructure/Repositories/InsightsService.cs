@@ -6,17 +6,21 @@ using PersonalFinanceTracker.Infrastructure.Data;
 
 namespace PersonalFinanceTracker.Infrastructure.Repositories;
 
-public class InsightsService(AppDbContext dbContext) : IInsightsService
+public class InsightsService(
+    AppDbContext dbContext,
+    IAccessControlService accessControlService,
+    IReportService reportService) : IInsightsService
 {
     public async Task<HealthScoreResponse> GetHealthScoreAsync(Guid userId, CancellationToken ct = default)
     {
+        var accessibleAccountIds = await accessControlService.GetAccessibleAccountIdsAsync(userId, ct);
         var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
         var monthStart = new DateOnly(today.Year, today.Month, 1);
         var lookbackStart = monthStart.AddMonths(-6);
 
         var transactions = await dbContext.Transactions
             .Where(x =>
-                x.UserId == userId &&
+                accessibleAccountIds.Contains(x.AccountId) &&
                 x.TransactionDate >= lookbackStart &&
                 x.TransactionDate <= today &&
                 x.Type != TransactionType.Transfer)
@@ -28,8 +32,8 @@ public class InsightsService(AppDbContext dbContext) : IInsightsService
 
         var savingsRateScore = ComputeSavingsRateScore(currentIncome, currentExpense);
         var expenseStabilityScore = ComputeExpenseStabilityScore(transactions);
-        var budgetAdherenceScore = await ComputeBudgetAdherenceScoreAsync(userId, today.Year, today.Month, ct);
-        var cashBufferScore = await ComputeCashBufferScoreAsync(userId, transactions, ct);
+        var budgetAdherenceScore = await ComputeBudgetAdherenceScoreAsync(userId, accessibleAccountIds, today.Year, today.Month, ct);
+        var cashBufferScore = await ComputeCashBufferScoreAsync(accessibleAccountIds, transactions, ct);
 
         var weightedScore =
             (savingsRateScore * 0.30m) +
@@ -48,6 +52,63 @@ public class InsightsService(AppDbContext dbContext) : IInsightsService
 
         var suggestions = BuildSuggestions(finalScore, savingsRateScore, expenseStabilityScore, budgetAdherenceScore, cashBufferScore);
         return new HealthScoreResponse(finalScore, breakdown, suggestions);
+    }
+
+    public async Task<IReadOnlyList<InsightHighlightResponse>> GetHighlightsAsync(Guid userId, DateOnly from, DateOnly to, Guid? accountId, Guid? categoryId, CancellationToken ct = default)
+    {
+        var previousFrom = from.AddMonths(-1);
+        var previousTo = to.AddMonths(-1);
+
+        var currentCategorySpend = await reportService.GetCategorySpendAsync(userId, from, to, accountId, categoryId, TransactionType.Expense, ct);
+        var previousCategorySpend = await reportService.GetCategorySpendAsync(userId, previousFrom, previousTo, accountId, categoryId, TransactionType.Expense, ct);
+        var savingsTrend = await reportService.GetSavingsRateTrendAsync(userId, previousFrom, to, accountId, ct);
+        var incomeExpense = await reportService.GetIncomeVsExpenseAsync(userId, previousFrom, to, accountId, categoryId, null, ct);
+
+        var highlights = new List<InsightHighlightResponse>();
+
+        var topCurrent = currentCategorySpend.FirstOrDefault();
+        if (topCurrent is not null)
+        {
+            var previousAmount = previousCategorySpend.FirstOrDefault(x => x.Category == topCurrent.Category)?.Amount ?? 0m;
+            var changePercent = ComputeChangePercent(previousAmount, topCurrent.Amount);
+            var severity = changePercent >= 15 ? "warning" : "info";
+            highlights.Add(new InsightHighlightResponse(
+                "Category Trend",
+                $"Your {topCurrent.Category} spending changed {Math.Round(changePercent, 1)}% compared to the previous period.",
+                severity,
+                Math.Round(changePercent, 1),
+                $"{from:yyyy-MM-dd} to {to:yyyy-MM-dd}"));
+        }
+
+        if (savingsTrend.Count >= 2)
+        {
+            var latest = savingsTrend[^1];
+            var previous = savingsTrend[^2];
+            var delta = latest.SavingsRate - previous.SavingsRate;
+            highlights.Add(new InsightHighlightResponse(
+                "Savings Rate",
+                delta >= 0
+                    ? $"You saved more than last month by {Math.Round(delta, 1)} percentage points."
+                    : $"Your savings rate dropped by {Math.Round(Math.Abs(delta), 1)} percentage points.",
+                delta >= 0 ? "success" : "warning",
+                Math.Round(delta, 1),
+                latest.Period));
+        }
+
+        if (incomeExpense.Count >= 2)
+        {
+            var latest = incomeExpense[^1];
+            var previous = incomeExpense[^2];
+            var expenseDelta = ComputeChangePercent(previous.Expense, latest.Expense);
+            highlights.Add(new InsightHighlightResponse(
+                "Expense Momentum",
+                $"Expenses moved {Math.Round(expenseDelta, 1)}% versus the previous month.",
+                expenseDelta > 0 ? "warning" : "success",
+                Math.Round(expenseDelta, 1),
+                latest.Month));
+        }
+
+        return highlights;
     }
 
     private static decimal ComputeSavingsRateScore(decimal income, decimal expense)
@@ -87,10 +148,12 @@ public class InsightsService(AppDbContext dbContext) : IInsightsService
         return Math.Clamp(score, 0m, 100m);
     }
 
-    private async Task<decimal> ComputeBudgetAdherenceScoreAsync(Guid userId, int year, int month, CancellationToken ct)
+    private async Task<decimal> ComputeBudgetAdherenceScoreAsync(Guid userId, IReadOnlyList<Guid> accessibleAccountIds, int year, int month, CancellationToken ct)
     {
         var budgets = await dbContext.Budgets
-            .Where(x => x.UserId == userId && x.Year == year && x.Month == month)
+            .Where(x =>
+                (x.AccountId == null && x.UserId == userId && x.Year == year && x.Month == month) ||
+                (x.AccountId != null && accessibleAccountIds.Contains(x.AccountId.Value) && x.Year == year && x.Month == month))
             .ToListAsync(ct);
 
         if (budgets.Count == 0)
@@ -102,7 +165,7 @@ public class InsightsService(AppDbContext dbContext) : IInsightsService
         var monthEnd = new DateOnly(year, month, DateTime.DaysInMonth(year, month));
         var expenses = await dbContext.Transactions
             .Where(x =>
-                x.UserId == userId &&
+                accessibleAccountIds.Contains(x.AccountId) &&
                 x.Type == TransactionType.Expense &&
                 x.TransactionDate >= monthStart &&
                 x.TransactionDate <= monthEnd &&
@@ -113,7 +176,7 @@ public class InsightsService(AppDbContext dbContext) : IInsightsService
         foreach (var budget in budgets)
         {
             var spent = expenses
-                .Where(x => x.CategoryId == budget.CategoryId)
+                .Where(x => x.CategoryId == budget.CategoryId && (!budget.AccountId.HasValue || x.AccountId == budget.AccountId.Value))
                 .Sum(x => x.Amount);
 
             if (budget.Amount <= 0m)
@@ -133,12 +196,12 @@ public class InsightsService(AppDbContext dbContext) : IInsightsService
     }
 
     private async Task<decimal> ComputeCashBufferScoreAsync(
-        Guid userId,
+        IReadOnlyList<Guid> accessibleAccountIds,
         IReadOnlyList<Domain.Entities.Transaction> transactions,
         CancellationToken ct)
     {
         var currentBalance = await dbContext.Accounts
-            .Where(x => x.UserId == userId)
+            .Where(x => accessibleAccountIds.Contains(x.Id))
             .SumAsync(x => x.CurrentBalance, ct);
 
         var monthlyExpenses = transactions
@@ -192,5 +255,14 @@ public class InsightsService(AppDbContext dbContext) : IInsightsService
 
         return suggestions;
     }
-}
 
+    private static decimal ComputeChangePercent(decimal previousValue, decimal currentValue)
+    {
+        if (previousValue == 0)
+        {
+            return currentValue == 0 ? 0 : 100;
+        }
+
+        return ((currentValue - previousValue) / previousValue) * 100m;
+    }
+}

@@ -6,7 +6,7 @@ using PersonalFinanceTracker.Infrastructure.Data;
 
 namespace PersonalFinanceTracker.Infrastructure.Repositories;
 
-public class ForecastService(AppDbContext dbContext) : IForecastService
+public class ForecastService(AppDbContext dbContext, IAccessControlService accessControlService) : IForecastService
 {
     public async Task<ForecastMonthResponse> GetMonthForecastAsync(Guid userId, CancellationToken ct = default)
     {
@@ -43,12 +43,13 @@ public class ForecastService(AppDbContext dbContext) : IForecastService
         DateOnly to,
         CancellationToken ct)
     {
+        var accessibleAccountIds = await accessControlService.GetAccessibleAccountIdsAsync(userId, ct);
         var currentBalance = await dbContext.Accounts
-            .Where(x => x.UserId == userId)
+            .Where(x => accessibleAccountIds.Contains(x.Id))
             .SumAsync(x => x.CurrentBalance, ct);
 
-        var (model, dailyProfile, historyCoverageDays) = await GetDailyProfileAsync(userId, from, ct);
-        var recurringDeltas = await GetRecurringDailyDeltasAsync(userId, from, to, ct);
+        var (model, dailyProfile, historyCoverageDays) = await GetDailyProfileAsync(accessibleAccountIds, from, ct);
+        var recurringDeltas = await GetRecurringDailyDeltasAsync(accessibleAccountIds, from, to, ct);
 
         var points = new List<DailyForecastPoint>();
         var running = currentBalance;
@@ -102,14 +103,14 @@ public class ForecastService(AppDbContext dbContext) : IForecastService
     }
 
     private async Task<(string Model, Dictionary<ForecastDayType, DayAverage> Profile, int CoverageDays)> GetDailyProfileAsync(
-        Guid userId,
+        IReadOnlyList<Guid> accessibleAccountIds,
         DateOnly today,
         CancellationToken ct)
     {
         var lookBackStart = today.AddDays(-90);
         var history = await dbContext.Transactions
             .Where(x =>
-                x.UserId == userId &&
+                accessibleAccountIds.Contains(x.AccountId) &&
                 x.TransactionDate >= lookBackStart &&
                 x.TransactionDate < today &&
                 x.Type != TransactionType.Transfer)
@@ -121,7 +122,7 @@ public class ForecastService(AppDbContext dbContext) : IForecastService
             var fallbackStart = today.AddDays(-30);
             var fallback = await dbContext.Transactions
                 .Where(x =>
-                    x.UserId == userId &&
+                    accessibleAccountIds.Contains(x.AccountId) &&
                     x.TransactionDate >= fallbackStart &&
                     x.TransactionDate < today &&
                     x.Type != TransactionType.Transfer)
@@ -188,14 +189,15 @@ public class ForecastService(AppDbContext dbContext) : IForecastService
     }
 
     private async Task<Dictionary<DateOnly, RecurringDayDelta>> GetRecurringDailyDeltasAsync(
-        Guid userId,
+        IReadOnlyList<Guid> accessibleAccountIds,
         DateOnly from,
         DateOnly to,
         CancellationToken ct)
     {
         var recurring = await dbContext.RecurringTransactions
             .Where(x =>
-                x.UserId == userId &&
+                x.AccountId.HasValue &&
+                accessibleAccountIds.Contains(x.AccountId.Value) &&
                 !x.IsPaused &&
                 x.NextRunDate <= to &&
                 (x.EndDate == null || x.EndDate >= from))

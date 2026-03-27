@@ -1,0 +1,16 @@
+namespace PersonalFinanceTracker.Domain.Entities;
+
+public class AccountActivity
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid AccountId { get; set; }
+    public Guid ActorUserId { get; set; }
+    public string EntityType { get; set; } = string.Empty;
+    public Guid? EntityId { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public Account? Account { get; set; }
+    public User? ActorUser { get; set; }
+}
