@@ -442,6 +442,11 @@ namespace PersonalFinanceTracker.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
+                    b.Property<bool>("IsSoftDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("text");
@@ -464,6 +469,12 @@ namespace PersonalFinanceTracker.Infrastructure.Migrations
 
                     b.Property<string>("ResetPasswordTokenHash")
                         .HasColumnType("text");
+
+                    b.Property<bool>("ShowWelcomeBackMessage")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("SoftDeletedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
