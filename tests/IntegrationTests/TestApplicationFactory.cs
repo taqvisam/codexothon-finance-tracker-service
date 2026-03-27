@@ -14,6 +14,7 @@ public class TestApplicationFactory : WebApplicationFactory<Program>
             configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Database:SkipStartupInitialization"] = "true",
+                ["Database:SkipCriticalAuthSchemaBootstrap"] = "true",
                 ["Database:MigrateRetryCount"] = "1",
                 ["DemoSeed:Enabled"] = "false"
             });

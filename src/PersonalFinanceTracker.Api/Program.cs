@@ -193,6 +193,7 @@ else
 }
 
 var skipStartupInitialization = app.Configuration.GetValue("Database:SkipStartupInitialization", false);
+var skipCriticalAuthSchemaBootstrap = app.Configuration.GetValue("Database:SkipCriticalAuthSchemaBootstrap", false);
 
 if (!skipStartupInitialization)
 {
@@ -265,12 +266,21 @@ else
     logger.LogInformation("Skipping database startup initialization because Database:SkipStartupInitialization=true.");
 }
 
-await AuthSchemaBootstrapper.EnsureCriticalColumnsAsync(app.Services, app.Lifetime.ApplicationStopping);
+if (!skipCriticalAuthSchemaBootstrap)
+{
+    await AuthSchemaBootstrapper.EnsureCriticalColumnsAsync(app.Services, app.Lifetime.ApplicationStopping);
+}
+else
+{
+    var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+    logger.LogInformation("Skipping critical auth schema bootstrap because Database:SkipCriticalAuthSchemaBootstrap=true.");
+}
 
 app.UseCors("Frontend");
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseMiddleware<SharedAccountAccessMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
