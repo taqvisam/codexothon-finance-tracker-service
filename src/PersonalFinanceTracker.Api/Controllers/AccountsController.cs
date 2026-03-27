@@ -35,4 +35,26 @@ public class AccountsController(IAccountService accountService) : ControllerBase
         await accountService.TransferAsync(User.GetUserId(), request, ct);
         return Ok(new { message = "Transfer completed." });
     }
+
+    [HttpPost("{id:guid}/invite")]
+    public async Task<IActionResult> Invite(Guid id, [FromBody] InviteAccountMemberRequest request, CancellationToken ct)
+    {
+        await accountService.InviteMemberAsync(User.GetUserId(), id, request, ct);
+        return Ok(new { message = "Member invited." });
+    }
+
+    [HttpGet("{id:guid}/members")]
+    public async Task<IActionResult> Members(Guid id, CancellationToken ct)
+        => Ok(await accountService.GetMembersAsync(User.GetUserId(), id, ct));
+
+    [HttpPut("{id:guid}/members/{userId:guid}")]
+    public async Task<IActionResult> UpdateMember(Guid id, Guid userId, [FromBody] UpdateAccountMemberRequest request, CancellationToken ct)
+    {
+        await accountService.UpdateMemberAsync(User.GetUserId(), id, userId, request, ct);
+        return Ok(new { message = "Member role updated." });
+    }
+
+    [HttpGet("{id:guid}/activity")]
+    public async Task<IActionResult> Activity(Guid id, CancellationToken ct)
+        => Ok(await accountService.GetActivityAsync(User.GetUserId(), id, ct));
 }

@@ -1,14 +1,13 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
 using FluentAssertions;
 
 namespace IntegrationTests;
 
-public class AuthGuardTests : IClassFixture<WebApplicationFactory<Program>>
+public class AuthGuardTests : IClassFixture<TestApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly TestApplicationFactory _factory;
 
-    public AuthGuardTests(WebApplicationFactory<Program> factory)
+    public AuthGuardTests(TestApplicationFactory factory)
     {
         _factory = factory;
     }

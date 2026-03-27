@@ -33,6 +33,10 @@ public class TransactionsController(ITransactionService transactionService) : Co
     public async Task<IActionResult> Create([FromBody] TransactionRequest request, CancellationToken ct)
         => Ok(await transactionService.CreateAsync(User.GetUserId(), request, ct));
 
+    [HttpPost("import")]
+    public async Task<IActionResult> Import([FromBody] TransactionImportRequest request, CancellationToken ct)
+        => Ok(await transactionService.ImportAsync(User.GetUserId(), request, ct));
+
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] TransactionRequest request, CancellationToken ct)
         => Ok(await transactionService.UpdateAsync(User.GetUserId(), id, request, ct));

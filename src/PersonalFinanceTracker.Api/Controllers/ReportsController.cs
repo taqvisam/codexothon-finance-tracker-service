@@ -40,6 +40,28 @@ public class ReportsController(IReportService reportService) : ControllerBase
         CancellationToken ct)
         => Ok(await reportService.GetAccountBalanceTrendAsync(User.GetUserId(), from, to, accountId, categoryId, type, ct));
 
+    [HttpGet("trends")]
+    public async Task<IActionResult> Trends(
+        [FromQuery] DateOnly from,
+        [FromQuery] DateOnly to,
+        [FromQuery] Guid? accountId,
+        [FromQuery] Guid? categoryId,
+        CancellationToken ct)
+        => Ok(new
+        {
+            categoryTrends = await reportService.GetCategoryTrendsAsync(User.GetUserId(), from, to, accountId, categoryId, ct),
+            savingsRateTrend = await reportService.GetSavingsRateTrendAsync(User.GetUserId(), from, to, accountId, ct),
+            incomeVsExpense = await reportService.GetIncomeVsExpenseAsync(User.GetUserId(), from, to, accountId, categoryId, null, ct)
+        });
+
+    [HttpGet("net-worth")]
+    public async Task<IActionResult> NetWorth(
+        [FromQuery] DateOnly from,
+        [FromQuery] DateOnly to,
+        [FromQuery] Guid? accountId,
+        CancellationToken ct)
+        => Ok(await reportService.GetNetWorthAsync(User.GetUserId(), from, to, accountId, ct));
+
     [HttpGet("category-spend/export-csv")]
     public async Task<IActionResult> ExportCategorySpendCsv(
         [FromQuery] DateOnly from,

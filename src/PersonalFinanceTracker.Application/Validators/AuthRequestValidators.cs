@@ -49,3 +49,20 @@ public class OAuthLoginRequestValidator : AbstractValidator<OAuthLoginRequest>
         RuleFor(x => x.Provider).NotEmpty();
     }
 }
+
+public class ChangePasswordRequestValidator : AbstractValidator<ChangePasswordRequest>
+{
+    public ChangePasswordRequestValidator()
+    {
+        RuleFor(x => x.CurrentPassword).NotEmpty();
+        RuleFor(x => x.NewPassword)
+            .NotEmpty()
+            .MinimumLength(8)
+            .Matches("[A-Z]")
+            .Matches("[a-z]")
+            .Matches("[0-9]");
+        RuleFor(x => x.ConfirmPassword)
+            .Equal(x => x.NewPassword)
+            .WithMessage("Confirm password must match new password.");
+    }
+}

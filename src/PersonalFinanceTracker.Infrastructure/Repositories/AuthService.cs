@@ -25,6 +25,7 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
     private readonly RefreshRequestValidator _refreshValidator = new();
     private readonly ForgotPasswordRequestValidator _forgotPasswordValidator = new();
     private readonly ResetPasswordRequestValidator _resetPasswordValidator = new();
+    private readonly ChangePasswordRequestValidator _changePasswordValidator = new();
     private readonly OAuthLoginRequestValidator _oauthValidator = new();
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -132,12 +133,14 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
 
         string? normalizedEmail = null;
         string? displayName = request.DisplayName;
+        string? profileImageUrl = null;
 
         if (!string.IsNullOrWhiteSpace(request.IdToken))
         {
             var payload = await VerifyGoogleTokenAsync(request.IdToken, ct);
             normalizedEmail = payload.Email?.Trim().ToLowerInvariant();
             displayName = string.IsNullOrWhiteSpace(displayName) ? payload.Name : displayName;
+            profileImageUrl = payload.Picture;
         }
         else
         {
@@ -167,11 +170,25 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
             {
                 Email = normalizedEmail,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? "OAuth User" : displayName,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)))
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))),
+                ProfileImageUrl = string.IsNullOrWhiteSpace(profileImageUrl) ? null : profileImageUrl
             };
             dbContext.Users.Add(user);
             AddDefaultCategories(user.Id);
             await dbContext.SaveChangesAsync(ct);
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(displayName))
+            {
+                user.DisplayName = displayName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profileImageUrl))
+            {
+                // Keep Google profile image in sync for OAuth sign-ins.
+                user.ProfileImageUrl = profileImageUrl;
+            }
         }
 
         return await BuildAuthResponseAsync(user, ct);
@@ -233,6 +250,34 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
         user.ResetPasswordTokenHash = null;
         user.ResetPasswordTokenExpiresAt = null;
+        await dbContext.SaveChangesAsync(ct);
+    }
+
+    public async Task ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken ct = default)
+    {
+        await _changePasswordValidator.ValidateAndThrowAsync(request, ct);
+
+        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Id == userId, ct)
+            ?? throw new AppException("User not found.", 404);
+
+        if (string.IsNullOrWhiteSpace(user.PasswordHash))
+        {
+            throw new AppException("Password change is unavailable for this account.", 400);
+        }
+
+        if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            throw new AppException("Current password is incorrect.", 401);
+        }
+
+        if (request.CurrentPassword == request.NewPassword)
+        {
+            throw new AppException("New password must be different from current password.", 400);
+        }
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.RefreshTokenHash = null;
+        user.RefreshTokenExpiresAt = null;
         await dbContext.SaveChangesAsync(ct);
     }
 
