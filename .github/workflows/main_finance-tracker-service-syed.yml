@@ -47,15 +47,28 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: .net-app
-      
-      - name: Login to Azure
+
+      - name: Login to Azure with OIDC
+        if: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE == '' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_F870E8FB07E542BA837A68B358A00590 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_CA97924FD0474C4DA8BCD62F632DE634 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_B22DF17C077442ECB88FD270C3E956DE }}
+          allow-no-subscriptions: true
 
-      - name: Deploy to Azure Web App
+      - name: Deploy to Azure Web App with publish profile
+        if: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE != '' }}
+        id: deploy-to-webapp-publish-profile
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'finance-tracker-service-syed'
+          slot-name: 'Production'
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: .
+
+      - name: Deploy to Azure Web App with OIDC
+        if: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE == '' }}
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
