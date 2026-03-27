@@ -8,10 +8,8 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using Microsoft.IdentityModel.Tokens;
-using PersonalFinanceTracker.Api.HealthChecks;
 using PersonalFinanceTracker.Api.Middleware;
 using PersonalFinanceTracker.Infrastructure;
 using PersonalFinanceTracker.Infrastructure.Data;
@@ -35,9 +33,7 @@ builder.Services.AddControllers()
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<AppDbContext>("database")
-    .AddCheck<AuthSchemaHealthCheck>("authSchema")
-    .AddCheck<GoogleOAuthHealthCheck>("googleAuth");
+    .AddDbContextCheck<AppDbContext>("database");
 builder.Services.AddSwaggerGen(options =>
 {
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -276,24 +272,9 @@ app.MapHealthChecks("/health", new HealthCheckOptions
     ResponseWriter = async (context, report) =>
     {
         context.Response.ContentType = "application/json";
-        static string ReadStatus(HealthReport report, string key)
-            => report.Entries.TryGetValue(key, out var entry)
-                ? entry.Status.ToString()
-                : "Unhealthy";
-
-        static object ReadDetails(HealthReport report, string key)
-        {
-            if (!report.Entries.TryGetValue(key, out var entry))
-            {
-                return new { status = "Unhealthy", description = "Health check did not run." };
-            }
-
-            return new
-            {
-                status = entry.Status.ToString(),
-                description = entry.Description
-            };
-        }
+        var databaseStatus = report.Entries.TryGetValue("database", out var dbEntry)
+            ? dbEntry.Status.ToString()
+            : "Unhealthy";
 
         var payload = new
         {
@@ -302,15 +283,7 @@ app.MapHealthChecks("/health", new HealthCheckOptions
             services = new
             {
                 api = report.Status.ToString(),
-                database = ReadStatus(report, "database"),
-                authSchema = ReadStatus(report, "authSchema"),
-                googleAuth = ReadStatus(report, "googleAuth")
-            },
-            details = new
-            {
-                database = ReadDetails(report, "database"),
-                authSchema = ReadDetails(report, "authSchema"),
-                googleAuth = ReadDetails(report, "googleAuth")
+                database = databaseStatus
             }
         };
 
