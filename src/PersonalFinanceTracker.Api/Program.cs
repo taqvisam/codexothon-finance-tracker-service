@@ -13,6 +13,7 @@ using Microsoft.OpenApi.Models;
 using Microsoft.IdentityModel.Tokens;
 using PersonalFinanceTracker.Api.HealthChecks;
 using PersonalFinanceTracker.Api.Middleware;
+using PersonalFinanceTracker.Api.Startup;
 using PersonalFinanceTracker.Infrastructure;
 using PersonalFinanceTracker.Infrastructure.Data;
 
@@ -263,6 +264,8 @@ else
     var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
     logger.LogInformation("Skipping database startup initialization because Database:SkipStartupInitialization=true.");
 }
+
+await AuthSchemaBootstrapper.EnsureCriticalColumnsAsync(app.Services, app.Lifetime.ApplicationStopping);
 
 app.UseCors("Frontend");
 app.UseMiddleware<ExceptionHandlingMiddleware>();
