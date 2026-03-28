@@ -26,11 +26,11 @@ public class GoalsController(IGoalService goalService) : ControllerBase
 
     [HttpPost("{id:guid}/contribute")]
     public async Task<IActionResult> Contribute(Guid id, [FromBody] GoalActionRequest request, CancellationToken ct)
-        => Ok(await goalService.ContributeAsync(User.GetUserId(), id, request.Amount, ct));
+        => Ok(await goalService.ContributeAsync(User.GetUserId(), id, request.Amount, request.AccountId, ct));
 
     [HttpPost("{id:guid}/withdraw")]
     public async Task<IActionResult> Withdraw(Guid id, [FromBody] GoalActionRequest request, CancellationToken ct)
-        => Ok(await goalService.WithdrawAsync(User.GetUserId(), id, request.Amount, ct));
+        => Ok(await goalService.WithdrawAsync(User.GetUserId(), id, request.Amount, request.AccountId, ct));
 
     [HttpPost("{id:guid}/hold")]
     public async Task<IActionResult> Hold(Guid id, [FromBody] HoldRequest request, CancellationToken ct)

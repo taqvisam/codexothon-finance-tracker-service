@@ -5,6 +5,7 @@ using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Application.Services;
 using PersonalFinanceTracker.Application.Validators;
 using PersonalFinanceTracker.Domain.Entities;
+using PersonalFinanceTracker.Domain.Enums;
 using PersonalFinanceTracker.Infrastructure.Data;
 
 namespace PersonalFinanceTracker.Infrastructure.Repositories;
@@ -102,7 +103,7 @@ public class GoalService(
         return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.LinkedAccountId, goal.Icon, goal.Color, goal.Status, progress);
     }
 
-    public async Task<GoalResponse> ContributeAsync(Guid userId, Guid id, decimal amount, CancellationToken ct = default)
+    public async Task<GoalResponse> ContributeAsync(Guid userId, Guid id, decimal amount, Guid? accountId, CancellationToken ct = default)
     {
         if (amount <= 0) throw new AppException("Contribution must be greater than zero.");
         var goal = await GetGoalForEditAsync(userId, id, ct);
@@ -118,14 +119,9 @@ public class GoalService(
             throw new AppException($"Contribution exceeds remaining target amount ({remainingAmount:0.##}).");
         }
 
-        if (goal.LinkedAccountId.HasValue)
-        {
-            var account = await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == goal.LinkedAccountId, ct)
-                ?? throw new AppException("Linked account not found.", 404);
-            if (account.CurrentBalance < amount) throw new AppException("Insufficient linked account balance.");
-            account.CurrentBalance -= amount;
-            activityLogger.Log(goal.LinkedAccountId.Value, userId, "goal", "contributed", $"Contributed {amount:0.##} to goal {goal.Name}.", goal.Id);
-        }
+        var fundingAccount = await ResolveGoalActionAccountAsync(userId, goal, accountId, "contribution", ct);
+        await CreateGoalTransactionAsync(userId, fundingAccount, goal, amount, TransactionType.Expense, ct);
+        activityLogger.Log(fundingAccount.Id, userId, "goal", "contributed", $"Contributed {amount:0.##} to goal {goal.Name}.", goal.Id);
 
         goal.CurrentAmount += amount;
         if (goal.CurrentAmount >= goal.TargetAmount) goal.Status = "completed";
@@ -134,7 +130,7 @@ public class GoalService(
         return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.LinkedAccountId, goal.Icon, goal.Color, goal.Status, (goal.CurrentAmount / goal.TargetAmount) * 100);
     }
 
-    public async Task<GoalResponse> WithdrawAsync(Guid userId, Guid id, decimal amount, CancellationToken ct = default)
+    public async Task<GoalResponse> WithdrawAsync(Guid userId, Guid id, decimal amount, Guid? accountId, CancellationToken ct = default)
     {
         if (amount <= 0) throw new AppException("Withdraw amount must be greater than zero.");
         var goal = await GetGoalForEditAsync(userId, id, ct);
@@ -143,12 +139,9 @@ public class GoalService(
         goal.CurrentAmount -= amount;
         if (goal.Status == "completed" && goal.CurrentAmount < goal.TargetAmount) goal.Status = "active";
 
-        if (goal.LinkedAccountId.HasValue)
-        {
-            var account = await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == goal.LinkedAccountId, ct);
-            if (account is not null) account.CurrentBalance += amount;
-            activityLogger.Log(goal.LinkedAccountId.Value, userId, "goal", "withdrawn", $"Withdrew {amount:0.##} from goal {goal.Name}.", goal.Id);
-        }
+        var destinationAccount = await ResolveGoalActionAccountAsync(userId, goal, accountId, "withdrawal", ct);
+        await CreateGoalTransactionAsync(userId, destinationAccount, goal, amount, TransactionType.Income, ct);
+        activityLogger.Log(destinationAccount.Id, userId, "goal", "withdrawn", $"Withdrew {amount:0.##} from goal {goal.Name}.", goal.Id);
 
         await dbContext.SaveChangesAsync(ct);
         return new GoalResponse(goal.Id, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.TargetDate, goal.LinkedAccountId, goal.Icon, goal.Color, goal.Status, (goal.CurrentAmount / goal.TargetAmount) * 100);
@@ -204,5 +197,107 @@ public class GoalService(
         }
 
         return goal;
+    }
+
+    private async Task<Account> ResolveGoalActionAccountAsync(Guid userId, Goal goal, Guid? requestedAccountId, string actionLabel, CancellationToken ct)
+    {
+        var targetAccountId = goal.LinkedAccountId ?? requestedAccountId;
+        if (!targetAccountId.HasValue)
+        {
+            throw new AppException($"Select an account for this goal {actionLabel}.", 400);
+        }
+
+        await accessControlService.EnsureCanEditAccountAsync(userId, targetAccountId.Value, ct);
+        return await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == targetAccountId.Value, ct)
+            ?? throw new AppException("Account not found.", 404);
+    }
+
+    private async Task CreateGoalTransactionAsync(
+        Guid userId,
+        Account account,
+        Goal goal,
+        decimal amount,
+        TransactionType transactionType,
+        CancellationToken ct)
+    {
+        var accountAccess = await accessControlService.GetAccountAccessAsync(userId, account.Id, ct);
+        var categoryType = transactionType == TransactionType.Expense ? CategoryType.Expense : CategoryType.Income;
+        var categoryName = transactionType == TransactionType.Expense ? "Goal Contribution" : "Goal Withdrawal";
+        var category = await EnsureGoalCategoryAsync(accountAccess.OwnerUserId, categoryName, categoryType, ct);
+
+        EnsureSufficientBalance(account, transactionType, amount);
+        ApplyBalance(account, transactionType, amount);
+
+        dbContext.Transactions.Add(new Transaction
+        {
+            UserId = userId,
+            AccountId = account.Id,
+            CategoryId = category.Id,
+            Type = transactionType,
+            Amount = amount,
+            TransactionDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            Merchant = goal.Name,
+            Note = transactionType == TransactionType.Expense
+                ? $"Goal contribution: {goal.Name}"
+                : $"Goal withdrawal: {goal.Name}",
+            PaymentMethod = "Goal"
+        });
+
+        account.LastUpdatedAt = DateTime.UtcNow;
+    }
+
+    private async Task<Category> EnsureGoalCategoryAsync(Guid ownerUserId, string name, CategoryType type, CancellationToken ct)
+    {
+        var existingCategory = await dbContext.Categories.FirstOrDefaultAsync(
+            x => x.UserId == ownerUserId && x.Type == type && x.Name == name,
+            ct);
+
+        if (existingCategory is not null)
+        {
+            return existingCategory;
+        }
+
+        var category = new Category
+        {
+            UserId = ownerUserId,
+            Name = name,
+            Type = type,
+            Color = type == CategoryType.Expense ? "#dd5757" : "#2ea05f",
+            Icon = "target",
+            IsArchived = false
+        };
+
+        dbContext.Categories.Add(category);
+        return category;
+    }
+
+    private static void ApplyBalance(Account account, TransactionType type, decimal amount)
+    {
+        if (amount <= 0) throw new AppException("Amount must be greater than zero.");
+        account.CurrentBalance += type == TransactionType.Income ? amount : -amount;
+    }
+
+    private static void EnsureSufficientBalance(Account account, TransactionType type, decimal amount)
+    {
+        if (type != TransactionType.Expense)
+        {
+            return;
+        }
+
+        if (account.Type == AccountType.CreditCard)
+        {
+            var availableCredit = (account.CreditLimit ?? 0) + account.CurrentBalance;
+            if (availableCredit < amount)
+            {
+                throw new AppException($"Limit exceeded for {account.Name}.");
+            }
+
+            return;
+        }
+
+        if (account.CurrentBalance < amount)
+        {
+            throw new AppException($"Insufficient funds in {account.Name}.");
+        }
     }
 }
