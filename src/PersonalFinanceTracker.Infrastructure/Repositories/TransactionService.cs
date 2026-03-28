@@ -52,7 +52,9 @@ public class TransactionService(
         page = page <= 0 ? 1 : page;
         pageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 200);
 
-        var rows = await query.OrderByDescending(x => x.TransactionDate)
+        var rows = await query
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenByDescending(x => x.TransactionDate)
             .Select(x => new { x.Id, x.AccountId, x.CategoryId, x.Type, x.Amount, x.TransactionDate, x.Merchant, x.Note, x.PaymentMethod, x.TransferAccountId, x.Tags })
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
