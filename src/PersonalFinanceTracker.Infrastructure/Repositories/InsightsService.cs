@@ -252,6 +252,16 @@ public class InsightsService(
         {
             suggestions.Add("Great progress. Maintain your savings and budgeting habits.");
         }
+        else if (suggestions.Count == 0 && score >= 55m)
+        {
+            suggestions.Add("Health score is stable. Focus on pushing savings rate and cash buffer higher.");
+            suggestions.Add("Review recurring expenses monthly to create more room for goals and investments.");
+        }
+        else if (suggestions.Count == 0)
+        {
+            suggestions.Add("Start with one controllable category and bring it back within budget this month.");
+            suggestions.Add("Route more income into savings first so your emergency buffer improves steadily.");
+        }
 
         return suggestions;
     }
