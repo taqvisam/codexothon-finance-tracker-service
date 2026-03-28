@@ -2,6 +2,7 @@ using System.Text;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -157,18 +158,27 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("login", opt =>
-    {
-        opt.PermitLimit = 5;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueLimit = 0;
-    });
-    options.AddFixedWindowLimiter("auth-sensitive", opt =>
-    {
-        opt.PermitLimit = 10;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueLimit = 0;
-    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"{ResolveClientKey(httpContext)}:login",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+    options.AddPolicy("auth-sensitive", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"{ResolveClientKey(httpContext)}:auth-sensitive",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
 });
 
 var app = builder.Build();
@@ -332,5 +342,16 @@ app.MapHealthChecks("/health", new HealthCheckOptions
 });
 
 app.Run();
+
+static string ResolveClientKey(HttpContext context)
+{
+    var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(forwardedFor))
+    {
+        return forwardedFor.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0];
+    }
+
+    return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+}
 
 public partial class Program;

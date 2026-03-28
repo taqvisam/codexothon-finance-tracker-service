@@ -1,11 +1,8 @@
-using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Application.Services;
 
 namespace PersonalFinanceTracker.Api.Middleware;
 
-public sealed class SharedAccountAccessMiddleware(
-    RequestDelegate next,
-    IAccessControlService accessControlService)
+public sealed class SharedAccountAccessMiddleware(RequestDelegate next)
 {
     private static readonly HashSet<string> ManagedSegments = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -22,15 +19,13 @@ public sealed class SharedAccountAccessMiddleware(
             return;
         }
 
-        if (TryGetManagedAccountRoute(context.Request.Path, out var accountId))
+        if (TryGetManagedAccountRoute(context.Request.Path, out _))
         {
             var userId = context.User.GetUserId();
             if (userId == Guid.Empty)
             {
                 throw new AppException("Unauthorized.", 401);
             }
-
-            await accessControlService.GetAccountAccessAsync(userId, accountId, context.RequestAborted);
         }
 
         await next(context);
