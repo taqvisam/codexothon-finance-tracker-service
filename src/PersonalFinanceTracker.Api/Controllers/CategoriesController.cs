@@ -11,8 +11,8 @@ namespace PersonalFinanceTracker.Api.Controllers;
 public class CategoriesController(ICategoryService categoryService) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> Get(CancellationToken ct)
-        => Ok(await categoryService.GetAllAsync(User.GetUserId(), ct));
+    public async Task<IActionResult> Get([FromQuery] Guid? accountId, [FromQuery] bool editableOnly, CancellationToken ct)
+        => Ok(await categoryService.GetAllAsync(User.GetUserId(), accountId, editableOnly, ct));
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CategoryRequest request, CancellationToken ct)

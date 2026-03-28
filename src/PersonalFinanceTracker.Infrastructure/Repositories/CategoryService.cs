@@ -9,9 +9,28 @@ namespace PersonalFinanceTracker.Infrastructure.Repositories;
 
 public class CategoryService(AppDbContext dbContext, IAccessControlService accessControlService) : ICategoryService
 {
-    public async Task<IReadOnlyList<CategoryResponse>> GetAllAsync(Guid userId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<CategoryResponse>> GetAllAsync(
+        Guid userId,
+        Guid? accountId = null,
+        bool editableOnly = false,
+        CancellationToken ct = default)
     {
-        var ownerIds = await accessControlService.GetAccessibleAccountOwnerIdsAsync(userId, ct);
+        IReadOnlyList<Guid> ownerIds;
+
+        if (editableOnly)
+        {
+            ownerIds = [userId];
+        }
+        else if (accountId.HasValue)
+        {
+            var access = await accessControlService.GetAccountAccessAsync(userId, accountId.Value, ct);
+            ownerIds = [access.OwnerUserId];
+        }
+        else
+        {
+            ownerIds = await accessControlService.GetAccessibleAccountOwnerIdsAsync(userId, ct);
+        }
+
         return await dbContext.Categories
             .Where(x => ownerIds.Contains(x.UserId))
             .OrderBy(x => x.Name)
