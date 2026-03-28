@@ -87,6 +87,71 @@ public class SharedAccountServiceTests
         activity[0].Action.Should().Be("created");
     }
 
+    [Fact]
+    public async Task GetActivityAsync_Should_Return_Activity_For_Multiple_Actors()
+    {
+        await using var dbContext = CreateDbContext();
+        var ownerId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+
+        dbContext.Users.AddRange(
+            new User
+            {
+                Id = ownerId,
+                Email = "owner@example.com",
+                DisplayName = "Owner User"
+            },
+            new User
+            {
+                Id = memberId,
+                Email = "member@example.com",
+                DisplayName = "Member User"
+            });
+        dbContext.Accounts.Add(new Account
+        {
+            Id = accountId,
+            UserId = ownerId,
+            Name = "Primary",
+            Type = AccountType.Bank,
+            OpeningBalance = 1000,
+            CurrentBalance = 1000
+        });
+        dbContext.AccountMembers.Add(new AccountMember
+        {
+            AccountId = accountId,
+            UserId = memberId,
+            Role = AccountMemberRole.Editor
+        });
+        dbContext.AccountActivities.AddRange(
+            new AccountActivity
+            {
+                Id = Guid.NewGuid(),
+                AccountId = accountId,
+                ActorUserId = ownerId,
+                EntityType = "membership",
+                Action = "invited",
+                Description = "Invited member@example.com as Editor."
+            },
+            new AccountActivity
+            {
+                Id = Guid.NewGuid(),
+                AccountId = accountId,
+                ActorUserId = memberId,
+                EntityType = "transaction",
+                Action = "created",
+                Description = "Added transaction Coffee."
+            });
+        await dbContext.SaveChangesAsync();
+
+        var service = CreateService(dbContext);
+
+        var activity = await service.GetActivityAsync(ownerId, accountId);
+
+        activity.Should().HaveCount(2);
+        activity.Select(item => item.ActorName).Should().Contain(["Owner User", "Member User"]);
+    }
+
     private static AppDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

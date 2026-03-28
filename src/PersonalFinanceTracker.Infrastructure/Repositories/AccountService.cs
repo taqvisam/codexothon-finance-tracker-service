@@ -204,6 +204,7 @@ public class AccountService(
         await accessControlService.GetAccountAccessAsync(userId, accountId, ct);
 
         var activities = await dbContext.AccountActivities
+            .AsNoTracking()
             .Where(x => x.AccountId == accountId)
             .OrderByDescending(x => x.CreatedAt)
             .Take(25)
@@ -214,10 +215,20 @@ public class AccountService(
             return [];
         }
 
-        var actorLookup = await dbContext.Users
-            .Where(x => activities.Select(a => a.ActorUserId).Contains(x.Id))
-            .Select(x => new { x.Id, x.Email, x.DisplayName })
-            .ToDictionaryAsync(x => x.Id, ct);
+        var actorIds = activities
+            .Select(activity => activity.ActorUserId)
+            .Distinct()
+            .ToList();
+
+        var actors = actorIds.Count == 0
+            ? []
+            : await dbContext.Users
+                .AsNoTracking()
+                .Where(x => actorIds.Contains(x.Id))
+                .Select(x => new { x.Id, x.Email, x.DisplayName })
+                .ToListAsync(ct);
+
+        var actorLookup = actors.ToDictionary(x => x.Id);
 
         return activities
             .Select(activity =>
