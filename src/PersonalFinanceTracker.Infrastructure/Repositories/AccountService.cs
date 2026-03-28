@@ -22,7 +22,20 @@ public class AccountService(
             .OrderBy(x => x.Name)
             .ToListAsync(ct);
 
-        return accounts.Select(ToResponse).ToList();
+        var collaboratorAccountIds = await dbContext.AccountMembers
+            .AsNoTracking()
+            .Where(x => accessibleAccountIds.Contains(x.AccountId))
+            .Select(x => x.AccountId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        var collaboratorSet = collaboratorAccountIds.ToHashSet();
+
+        return accounts
+            .Select(account => ToResponse(
+                account,
+                account.UserId != userId || collaboratorSet.Contains(account.Id)))
+            .ToList();
     }
 
     public async Task<AccountResponse> CreateAsync(Guid userId, AccountRequest request, CancellationToken ct = default)
@@ -44,7 +57,7 @@ public class AccountService(
         activityLogger.Log(account.Id, userId, "account", "created", $"Created account {account.Name}.", account.Id);
         await dbContext.SaveChangesAsync(ct);
 
-        return ToResponse(account);
+        return ToResponse(account, false);
     }
 
     public async Task<AccountResponse> UpdateAsync(Guid userId, Guid id, AccountRequest request, CancellationToken ct = default)
@@ -70,7 +83,7 @@ public class AccountService(
         activityLogger.Log(account.Id, userId, "account", "updated", $"Updated account {account.Name}.", account.Id);
         await dbContext.SaveChangesAsync(ct);
 
-        return ToResponse(account);
+        return ToResponse(account, false);
     }
 
     public async Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default)
@@ -344,7 +357,7 @@ public class AccountService(
         await dbContext.SaveChangesAsync(ct);
     }
 
-    private static AccountResponse ToResponse(Account account)
+    private static AccountResponse ToResponse(Account account, bool isShared)
     {
         var availableCredit = GetAvailableCredit(account);
         return new AccountResponse(
@@ -355,7 +368,8 @@ public class AccountService(
             account.CurrentBalance,
             account.CreditLimit,
             availableCredit,
-            account.InstitutionName);
+            account.InstitutionName,
+            isShared);
     }
 
     private static void EnsureValidAccountRequest(AccountRequest request)

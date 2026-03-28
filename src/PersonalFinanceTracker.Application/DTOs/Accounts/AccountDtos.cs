@@ -12,4 +12,5 @@ public record AccountResponse(
     decimal CurrentBalance,
     decimal? CreditLimit,
     decimal? AvailableCredit,
-    string? InstitutionName);
+    string? InstitutionName,
+    bool IsShared);
