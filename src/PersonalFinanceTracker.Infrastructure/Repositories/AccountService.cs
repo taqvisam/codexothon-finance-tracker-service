@@ -143,106 +143,140 @@ public class AccountService(
 
     public async Task<IReadOnlyList<AccountMemberResponse>> GetMembersAsync(Guid userId, Guid accountId, CancellationToken ct = default)
     {
-        await accessControlService.GetAccountAccessAsync(userId, accountId, ct);
-
-        var account = await dbContext.Accounts
-            .Where(x => x.Id == accountId)
-            .Select(x => new { x.UserId })
-            .FirstAsync(ct);
-
-        var memberRows = await dbContext.AccountMembers
-            .Where(x => x.AccountId == accountId)
-            .OrderBy(x => x.CreatedAt)
-            .ToListAsync(ct);
-
-        var userIds = memberRows
-            .Select(x => x.UserId)
-            .Append(account.UserId)
-            .Distinct()
-            .ToList();
-
-        var users = await dbContext.Users
-            .Where(x => userIds.Contains(x.Id))
-            .Select(x => new { x.Id, x.Email, x.DisplayName })
-            .ToListAsync(ct);
-
-        var userLookup = users.ToDictionary(x => x.Id);
-        if (!userLookup.TryGetValue(account.UserId, out var ownerUser))
+        for (var attempt = 1; attempt <= 2; attempt++)
         {
-            throw new AppException("Account owner not found.", 404);
+            try
+            {
+                await accessControlService.GetAccountAccessAsync(userId, accountId, ct);
+
+                var account = await dbContext.Accounts
+                    .AsNoTracking()
+                    .Where(x => x.Id == accountId)
+                    .Select(x => new { x.UserId })
+                    .FirstOrDefaultAsync(ct)
+                    ?? throw new AppException("Account not found.", 404);
+
+                var memberRows = await dbContext.AccountMembers
+                    .AsNoTracking()
+                    .Where(x => x.AccountId == accountId)
+                    .OrderBy(x => x.CreatedAt)
+                    .ToListAsync(ct);
+
+                var userIds = memberRows
+                    .Select(x => x.UserId)
+                    .Append(account.UserId)
+                    .Distinct()
+                    .ToList();
+
+                var users = await dbContext.Users
+                    .AsNoTracking()
+                    .Where(x => userIds.Contains(x.Id))
+                    .Select(x => new { x.Id, x.Email, x.DisplayName })
+                    .ToListAsync(ct);
+
+                var userLookup = users.ToDictionary(x => x.Id);
+                userLookup.TryGetValue(account.UserId, out var ownerUser);
+
+                var ownerEmail = ownerUser?.Email ?? string.Empty;
+                var owner = new AccountMemberResponse(
+                    account.UserId,
+                    ownerEmail,
+                    ResolveDisplayName(ownerUser?.DisplayName, ownerEmail),
+                    AccountMemberRole.Owner,
+                    true);
+
+                var members = memberRows
+                    .Where(x => x.UserId != account.UserId)
+                    .Select(member =>
+                    {
+                        userLookup.TryGetValue(member.UserId, out var memberUser);
+
+                        var email = memberUser?.Email ?? string.Empty;
+                        return new AccountMemberResponse(
+                            member.UserId,
+                            email,
+                            ResolveDisplayName(memberUser?.DisplayName, email),
+                            member.Role,
+                            false);
+                    })
+                    .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                return new[] { owner }.Concat(members).ToList();
+            }
+            catch (AppException)
+            {
+                throw;
+            }
+            catch when (attempt == 1)
+            {
+                await Task.Delay(150, ct);
+            }
         }
 
-        var owner = new AccountMemberResponse(
-            ownerUser.Id,
-            ownerUser.Email,
-            ResolveDisplayName(ownerUser.DisplayName, ownerUser.Email),
-            AccountMemberRole.Owner,
-            true);
-
-        var members = memberRows
-            .Where(x => x.UserId != account.UserId)
-            .Select(member =>
-            {
-                userLookup.TryGetValue(member.UserId, out var memberUser);
-
-                var email = memberUser?.Email ?? string.Empty;
-                return new AccountMemberResponse(
-                    member.UserId,
-                    email,
-                    ResolveDisplayName(memberUser?.DisplayName, email),
-                    member.Role,
-                    false);
-            })
-            .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        return new[] { owner }.Concat(members).ToList();
+        throw new AppException("Unable to load shared account members.", 500);
     }
 
     public async Task<IReadOnlyList<AccountActivityResponse>> GetActivityAsync(Guid userId, Guid accountId, CancellationToken ct = default)
     {
-        await accessControlService.GetAccountAccessAsync(userId, accountId, ct);
-
-        var activities = await dbContext.AccountActivities
-            .AsNoTracking()
-            .Where(x => x.AccountId == accountId)
-            .OrderByDescending(x => x.CreatedAt)
-            .Take(25)
-            .ToListAsync(ct);
-
-        if (activities.Count == 0)
+        for (var attempt = 1; attempt <= 2; attempt++)
         {
-            return [];
+            try
+            {
+                await accessControlService.GetAccountAccessAsync(userId, accountId, ct);
+
+                var activities = await dbContext.AccountActivities
+                    .AsNoTracking()
+                    .Where(x => x.AccountId == accountId)
+                    .OrderByDescending(x => x.CreatedAt)
+                    .Take(25)
+                    .ToListAsync(ct);
+
+                if (activities.Count == 0)
+                {
+                    return [];
+                }
+
+                var actorIds = activities
+                    .Select(activity => activity.ActorUserId)
+                    .Distinct()
+                    .ToList();
+
+                var actors = actorIds.Count == 0
+                    ? []
+                    : await dbContext.Users
+                        .AsNoTracking()
+                        .Where(x => actorIds.Contains(x.Id))
+                        .Select(x => new { x.Id, x.Email, x.DisplayName })
+                        .ToListAsync(ct);
+
+                var actorLookup = actors.ToDictionary(x => x.Id);
+
+                return activities
+                    .Select(activity =>
+                    {
+                        actorLookup.TryGetValue(activity.ActorUserId, out var actor);
+                        return new AccountActivityResponse(
+                            activity.Id,
+                            ResolveDisplayName(actor?.DisplayName, actor?.Email),
+                            activity.EntityType,
+                            activity.Action,
+                            activity.Description,
+                            activity.CreatedAt);
+                    })
+                    .ToList();
+            }
+            catch (AppException)
+            {
+                throw;
+            }
+            catch when (attempt == 1)
+            {
+                await Task.Delay(150, ct);
+            }
         }
 
-        var actorIds = activities
-            .Select(activity => activity.ActorUserId)
-            .Distinct()
-            .ToList();
-
-        var actors = actorIds.Count == 0
-            ? []
-            : await dbContext.Users
-                .AsNoTracking()
-                .Where(x => actorIds.Contains(x.Id))
-                .Select(x => new { x.Id, x.Email, x.DisplayName })
-                .ToListAsync(ct);
-
-        var actorLookup = actors.ToDictionary(x => x.Id);
-
-        return activities
-            .Select(activity =>
-            {
-                actorLookup.TryGetValue(activity.ActorUserId, out var actor);
-                return new AccountActivityResponse(
-                    activity.Id,
-                    ResolveDisplayName(actor?.DisplayName, actor?.Email),
-                    activity.EntityType,
-                    activity.Action,
-                    activity.Description,
-                    activity.CreatedAt);
-            })
-            .ToList();
+        throw new AppException("Unable to load shared account activity.", 500);
     }
 
     public async Task InviteMemberAsync(Guid userId, Guid accountId, InviteAccountMemberRequest request, CancellationToken ct = default)
