@@ -31,6 +31,10 @@ namespace PersonalFinanceTracker.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal?>("CreditLimit")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)");
+
                     b.Property<decimal>("CurrentBalance")
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric(12,2)");

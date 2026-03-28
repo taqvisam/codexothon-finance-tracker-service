@@ -16,22 +16,27 @@ public class AccountService(
     public async Task<IReadOnlyList<AccountResponse>> GetAllAsync(Guid userId, CancellationToken ct = default)
     {
         var accessibleAccountIds = await accessControlService.GetAccessibleAccountIdsAsync(userId, ct);
-        return await dbContext.Accounts
+        var accounts = await dbContext.Accounts
+            .AsNoTracking()
             .Where(x => accessibleAccountIds.Contains(x.Id))
             .OrderBy(x => x.Name)
-            .Select(x => new AccountResponse(x.Id, x.Name, x.Type, x.OpeningBalance, x.CurrentBalance, x.InstitutionName))
             .ToListAsync(ct);
+
+        return accounts.Select(ToResponse).ToList();
     }
 
     public async Task<AccountResponse> CreateAsync(Guid userId, AccountRequest request, CancellationToken ct = default)
     {
+        EnsureValidAccountRequest(request);
+
         var account = new Account
         {
             UserId = userId,
-            Name = request.Name,
+            Name = request.Name.Trim(),
             Type = request.Type,
             OpeningBalance = request.OpeningBalance,
             CurrentBalance = request.OpeningBalance,
+            CreditLimit = NormalizeCreditLimit(request.Type, request.CreditLimit),
             InstitutionName = request.InstitutionName
         };
 
@@ -39,11 +44,13 @@ public class AccountService(
         activityLogger.Log(account.Id, userId, "account", "created", $"Created account {account.Name}.", account.Id);
         await dbContext.SaveChangesAsync(ct);
 
-        return new AccountResponse(account.Id, account.Name, account.Type, account.OpeningBalance, account.CurrentBalance, account.InstitutionName);
+        return ToResponse(account);
     }
 
     public async Task<AccountResponse> UpdateAsync(Guid userId, Guid id, AccountRequest request, CancellationToken ct = default)
     {
+        EnsureValidAccountRequest(request);
+
         var account = await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == id, ct)
             ?? throw new AppException("Account not found.", 404);
         if (account.UserId != userId)
@@ -51,14 +58,18 @@ public class AccountService(
             throw new AppException("Only account owner can update account settings.", 403);
         }
 
-        account.Name = request.Name;
+        var openingBalanceDelta = request.OpeningBalance - account.OpeningBalance;
+        account.Name = request.Name.Trim();
         account.Type = request.Type;
+        account.OpeningBalance = request.OpeningBalance;
+        account.CurrentBalance += openingBalanceDelta;
+        account.CreditLimit = NormalizeCreditLimit(request.Type, request.CreditLimit);
         account.InstitutionName = request.InstitutionName;
         account.LastUpdatedAt = DateTime.UtcNow;
         activityLogger.Log(account.Id, userId, "account", "updated", $"Updated account {account.Name}.", account.Id);
         await dbContext.SaveChangesAsync(ct);
 
-        return new AccountResponse(account.Id, account.Name, account.Type, account.OpeningBalance, account.CurrentBalance, account.InstitutionName);
+        return ToResponse(account);
     }
 
     public async Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default)
@@ -110,10 +121,7 @@ public class AccountService(
         var to = await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == request.ToAccountId, ct)
             ?? throw new AppException("Destination account not found.", 404);
 
-        if (from.CurrentBalance < request.Amount)
-        {
-            throw new AppException("Insufficient balance.");
-        }
+        EnsureSufficientSourceCapacity(from, request.Amount);
 
         from.CurrentBalance -= request.Amount;
         to.CurrentBalance += request.Amount;
@@ -333,6 +341,72 @@ public class AccountService(
         member.Role = request.Role;
         activityLogger.Log(accountId, userId, "membership", "role-updated", $"Updated member role to {request.Role}.", memberUserId);
         await dbContext.SaveChangesAsync(ct);
+    }
+
+    private static AccountResponse ToResponse(Account account)
+    {
+        var availableCredit = GetAvailableCredit(account);
+        return new AccountResponse(
+            account.Id,
+            account.Name,
+            account.Type,
+            account.OpeningBalance,
+            account.CurrentBalance,
+            account.CreditLimit,
+            availableCredit,
+            account.InstitutionName);
+    }
+
+    private static void EnsureValidAccountRequest(AccountRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            throw new AppException("Account name is required.", 400);
+        }
+
+        if (request.Type == AccountType.CreditCard && (!request.CreditLimit.HasValue || request.CreditLimit.Value <= 0))
+        {
+            throw new AppException("Credit limit is required for credit card accounts.", 400);
+        }
+    }
+
+    private static decimal? NormalizeCreditLimit(AccountType type, decimal? creditLimit)
+    {
+        if (type != AccountType.CreditCard)
+        {
+            return null;
+        }
+
+        return Math.Round(creditLimit!.Value, 2);
+    }
+
+    private static decimal? GetAvailableCredit(Account account)
+    {
+        if (account.Type != AccountType.CreditCard || !account.CreditLimit.HasValue)
+        {
+            return null;
+        }
+
+        return account.CreditLimit.Value + account.CurrentBalance;
+    }
+
+    private static void EnsureSufficientSourceCapacity(Account account, decimal amount)
+    {
+        if (account.Type == AccountType.CreditCard)
+        {
+            var availableCredit = GetAvailableCredit(account) ?? 0;
+            if (availableCredit < amount)
+            {
+                throw new AppException("Credit limit exceeded.");
+            }
+
+            return;
+        }
+
+        if (account.CurrentBalance < amount)
+        {
+            throw new AppException("Insufficient balance.");
+        }
     }
 
     private static string ResolveDisplayName(string? displayName, string? email)

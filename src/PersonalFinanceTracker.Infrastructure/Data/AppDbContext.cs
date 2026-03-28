@@ -40,6 +40,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Name).HasMaxLength(100).IsRequired();
             e.Property(x => x.OpeningBalance).HasPrecision(12, 2);
             e.Property(x => x.CurrentBalance).HasPrecision(12, 2);
+            e.Property(x => x.CreditLimit).HasPrecision(12, 2);
             e.Property(x => x.InstitutionName).HasMaxLength(120);
             e.HasIndex(x => x.UserId).HasDatabaseName("ix_accounts_user_id");
         });

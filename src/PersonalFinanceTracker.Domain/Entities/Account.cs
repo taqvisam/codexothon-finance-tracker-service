@@ -10,6 +10,7 @@ public class Account
     public AccountType Type { get; set; }
     public decimal OpeningBalance { get; set; }
     public decimal CurrentBalance { get; set; }
+    public decimal? CreditLimit { get; set; }
     public string? InstitutionName { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdatedAt { get; set; } = DateTime.UtcNow;

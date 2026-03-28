@@ -14,6 +14,7 @@ public record OnboardingImportAccountRow(
     string Name,
     string Type,
     decimal OpeningBalance,
+    decimal? CreditLimit,
     string? InstitutionName);
 
 public record OnboardingImportBudgetRow(

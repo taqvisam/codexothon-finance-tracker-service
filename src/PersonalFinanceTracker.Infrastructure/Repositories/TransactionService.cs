@@ -270,7 +270,23 @@ public class TransactionService(
     private static void EnsureSufficientBalance(Account account, TransactionType type, decimal amount)
     {
         var debitsAccount = type is TransactionType.Expense or TransactionType.Transfer;
-        if (debitsAccount && account.CurrentBalance < amount)
+        if (!debitsAccount)
+        {
+            return;
+        }
+
+        if (account.Type == AccountType.CreditCard)
+        {
+            var availableCredit = (account.CreditLimit ?? 0) + account.CurrentBalance;
+            if (availableCredit < amount)
+            {
+                throw new AppException("Credit limit exceeded.");
+            }
+
+            return;
+        }
+
+        if (account.CurrentBalance < amount)
         {
             throw new AppException("Insufficient balance.");
         }

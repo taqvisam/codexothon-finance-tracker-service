@@ -93,6 +93,7 @@ public static class DemoDataSeeder
             Type = AccountType.CreditCard,
             OpeningBalance = -10000,
             CurrentBalance = -10000,
+            CreditLimit = 60000,
             InstitutionName = "HDFC Credit",
             CreatedAt = now,
             LastUpdatedAt = now

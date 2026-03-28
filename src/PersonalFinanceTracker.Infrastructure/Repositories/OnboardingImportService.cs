@@ -56,6 +56,7 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
         foreach (var row in request.Accounts)
         {
             var accountType = ParseAccountType(row.Type);
+            var creditLimit = NormalizeCreditLimit(accountType, row.CreditLimit, row.Name);
             var account = new Account
             {
                 UserId = userId,
@@ -63,6 +64,7 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
                 Type = accountType,
                 OpeningBalance = row.OpeningBalance,
                 CurrentBalance = row.OpeningBalance,
+                CreditLimit = creditLimit,
                 InstitutionName = NormalizeOptional(row.InstitutionName),
                 CreatedAt = now,
                 LastUpdatedAt = now
@@ -337,6 +339,21 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
         => Enum.TryParse<TransactionType>(NormalizeOptional(value), true, out var parsed)
             ? parsed
             : throw new AppException($"Unsupported transaction type: {value}", 400);
+
+    private static decimal? NormalizeCreditLimit(AccountType type, decimal? creditLimit, string accountName)
+    {
+        if (type != AccountType.CreditCard)
+        {
+            return null;
+        }
+
+        if (!creditLimit.HasValue || creditLimit.Value <= 0)
+        {
+            throw new AppException($"Credit card account '{accountName}' must include a credit limit greater than zero.", 400);
+        }
+
+        return creditLimit.Value;
+    }
 
     private static RecurringFrequency ParseRecurringFrequency(string value)
         => Enum.TryParse<RecurringFrequency>(NormalizeOptional(value), true, out var parsed)
