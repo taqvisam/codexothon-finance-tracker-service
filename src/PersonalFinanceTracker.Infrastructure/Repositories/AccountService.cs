@@ -210,7 +210,7 @@ public class AccountService(
             }
             catch when (attempt == 1)
             {
-                await Task.Delay(150, ct);
+                await Task.Delay(1000, ct);
             }
         }
 
@@ -272,7 +272,7 @@ public class AccountService(
             }
             catch when (attempt == 1)
             {
-                await Task.Delay(150, ct);
+                await Task.Delay(1000, ct);
             }
         }
 
