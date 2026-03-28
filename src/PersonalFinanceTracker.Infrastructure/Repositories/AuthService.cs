@@ -197,7 +197,7 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
         return await BuildAuthResponseAsync(user, ct);
     }
 
-    public async Task ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default)
+    public async Task<string?> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default)
     {
         await _forgotPasswordValidator.ValidateAndThrowAsync(request, ct);
 
@@ -205,7 +205,7 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
         var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email == email, ct);
         if (user is null)
         {
-            return;
+            return null;
         }
 
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
@@ -217,6 +217,9 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
         {
             Console.WriteLine($"[DEMO] Reset token for {email}: {token}");
         }
+
+        var exposeResetToken = bool.TryParse(configuration["Auth:ExposeResetTokenForDemo"], out var shouldExposeToken) && shouldExposeToken;
+        return exposeResetToken ? token : null;
     }
 
     public async Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default)

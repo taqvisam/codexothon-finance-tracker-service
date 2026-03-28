@@ -16,7 +16,9 @@ public class TestApplicationFactory : WebApplicationFactory<Program>
                 ["Database:SkipStartupInitialization"] = "true",
                 ["Database:SkipCriticalAuthSchemaBootstrap"] = "true",
                 ["Database:MigrateRetryCount"] = "1",
-                ["DemoSeed:Enabled"] = "false"
+                ["DemoSeed:Enabled"] = "false",
+                ["Auth:ExposeResetTokenForDemo"] = "true",
+                ["OAuth:AllowInsecureTestMode"] = "true"
             });
         });
     }

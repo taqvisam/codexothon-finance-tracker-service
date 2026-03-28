@@ -57,8 +57,8 @@ public class AuthController(IAuthService authService) : ControllerBase
     [HttpPost("forgot-password")]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
     {
-        await authService.ForgotPasswordAsync(request, ct);
-        return Ok(new { message = "If account exists, reset instructions have been sent." });
+        var token = await authService.ForgotPasswordAsync(request, ct);
+        return Ok(new ForgotPasswordResponse("If account exists, reset instructions have been sent.", token));
     }
 
     [EnableRateLimiting("auth-sensitive")]

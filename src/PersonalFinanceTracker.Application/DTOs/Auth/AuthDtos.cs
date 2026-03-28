@@ -4,6 +4,7 @@ public record RegisterRequest(string Email, string Password, string DisplayName)
 public record LoginRequest(string Email, string Password);
 public record RefreshRequest(string RefreshToken);
 public record ForgotPasswordRequest(string Email);
+public record ForgotPasswordResponse(string Message, string? ResetToken);
 public record ResetPasswordRequest(string Email, string Token, string NewPassword);
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword, string ConfirmPassword);
 public record OAuthLoginRequest(
