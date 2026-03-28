@@ -11,8 +11,8 @@ namespace PersonalFinanceTracker.Api.Controllers;
 public class AccountsController(IAccountService accountService) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> Get(CancellationToken ct)
-        => Ok(await accountService.GetAllAsync(User.GetUserId(), ct));
+    public async Task<IActionResult> Get([FromQuery] DateOnly? from, CancellationToken ct)
+        => Ok(await accountService.GetAllAsync(User.GetUserId(), from, ct));
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] AccountRequest request, CancellationToken ct)

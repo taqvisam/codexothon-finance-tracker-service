@@ -13,7 +13,9 @@ public class AccountService(
     IAccessControlService accessControlService,
     AccountActivityLogger activityLogger) : IAccountService
 {
-    public async Task<IReadOnlyList<AccountResponse>> GetAllAsync(Guid userId, CancellationToken ct = default)
+    private sealed record AccountBalanceEvent(Guid AccountId, Guid? TransferAccountId, TransactionType Type, decimal Amount);
+
+    public async Task<IReadOnlyList<AccountResponse>> GetAllAsync(Guid userId, DateOnly? from = null, CancellationToken ct = default)
     {
         var accessibleAccountIds = await accessControlService.GetAccessibleAccountIdsAsync(userId, ct);
         var accounts = await dbContext.Accounts
@@ -21,6 +23,21 @@ public class AccountService(
             .Where(x => accessibleAccountIds.Contains(x.Id))
             .OrderBy(x => x.Name)
             .ToListAsync(ct);
+
+        var balancesAtPeriodStart = CalculateBalancesAtPeriodStart(accounts, []);
+        if (from.HasValue && accounts.Count > 0)
+        {
+            var priorTransactions = await dbContext.Transactions
+                .AsNoTracking()
+                .Where(x =>
+                    x.TransactionDate < from.Value
+                    && (accessibleAccountIds.Contains(x.AccountId)
+                        || (x.TransferAccountId.HasValue && accessibleAccountIds.Contains(x.TransferAccountId.Value))))
+                .Select(x => new AccountBalanceEvent(x.AccountId, x.TransferAccountId, x.Type, x.Amount))
+                .ToListAsync(ct);
+
+            balancesAtPeriodStart = CalculateBalancesAtPeriodStart(accounts, priorTransactions);
+        }
 
         var collaboratorAccountIds = await dbContext.AccountMembers
             .AsNoTracking()
@@ -34,7 +51,8 @@ public class AccountService(
         return accounts
             .Select(account => ToResponse(
                 account,
-                account.UserId != userId || collaboratorSet.Contains(account.Id)))
+                account.UserId != userId || collaboratorSet.Contains(account.Id),
+                balancesAtPeriodStart[account.Id]))
             .ToList();
     }
 
@@ -57,7 +75,7 @@ public class AccountService(
         activityLogger.Log(account.Id, userId, "account", "created", $"Created account {account.Name}.", account.Id);
         await dbContext.SaveChangesAsync(ct);
 
-        return ToResponse(account, false);
+        return ToResponse(account, false, account.OpeningBalance);
     }
 
     public async Task<AccountResponse> UpdateAsync(Guid userId, Guid id, AccountRequest request, CancellationToken ct = default)
@@ -83,7 +101,7 @@ public class AccountService(
         activityLogger.Log(account.Id, userId, "account", "updated", $"Updated account {account.Name}.", account.Id);
         await dbContext.SaveChangesAsync(ct);
 
-        return ToResponse(account, false);
+        return ToResponse(account, false, account.OpeningBalance);
     }
 
     public async Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default)
@@ -357,7 +375,7 @@ public class AccountService(
         await dbContext.SaveChangesAsync(ct);
     }
 
-    private static AccountResponse ToResponse(Account account, bool isShared)
+    private static AccountResponse ToResponse(Account account, bool isShared, decimal balanceAtPeriodStart)
     {
         var availableCredit = GetAvailableCredit(account);
         return new AccountResponse(
@@ -365,11 +383,68 @@ public class AccountService(
             account.Name,
             account.Type,
             account.OpeningBalance,
+            balanceAtPeriodStart,
             account.CurrentBalance,
             account.CreditLimit,
             availableCredit,
             account.InstitutionName,
             isShared);
+    }
+
+    private static Dictionary<Guid, decimal> CalculateBalancesAtPeriodStart(
+        IReadOnlyCollection<Account> accounts,
+        IReadOnlyCollection<AccountBalanceEvent> transactions)
+    {
+        var balances = accounts.ToDictionary(account => account.Id, account => account.OpeningBalance);
+        if (transactions.Count == 0)
+        {
+            return balances;
+        }
+
+        foreach (var transaction in transactions)
+        {
+            var sourceAccountId = transaction.AccountId;
+            var transferAccountId = transaction.TransferAccountId;
+            var type = transaction.Type;
+            var amount = transaction.Amount;
+
+            if (type == TransactionType.Income)
+            {
+                if (balances.ContainsKey(sourceAccountId))
+                {
+                    balances[sourceAccountId] += amount;
+                }
+
+                continue;
+            }
+
+            if (type == TransactionType.Expense)
+            {
+                if (balances.ContainsKey(sourceAccountId))
+                {
+                    balances[sourceAccountId] -= amount;
+                }
+
+                continue;
+            }
+
+            if (type != TransactionType.Transfer)
+            {
+                continue;
+            }
+
+            if (balances.ContainsKey(sourceAccountId))
+            {
+                balances[sourceAccountId] -= amount;
+            }
+
+            if (transferAccountId.HasValue && balances.ContainsKey(transferAccountId.Value))
+            {
+                balances[transferAccountId.Value] += amount;
+            }
+        }
+
+        return balances;
     }
 
     private static void EnsureValidAccountRequest(AccountRequest request)

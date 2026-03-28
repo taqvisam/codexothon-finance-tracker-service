@@ -4,7 +4,7 @@ namespace PersonalFinanceTracker.Application.Interfaces;
 
 public interface IAccountService
 {
-    Task<IReadOnlyList<AccountResponse>> GetAllAsync(Guid userId, CancellationToken ct = default);
+    Task<IReadOnlyList<AccountResponse>> GetAllAsync(Guid userId, DateOnly? from = null, CancellationToken ct = default);
     Task<AccountResponse> CreateAsync(Guid userId, AccountRequest request, CancellationToken ct = default);
     Task<AccountResponse> UpdateAsync(Guid userId, Guid id, AccountRequest request, CancellationToken ct = default);
     Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default);

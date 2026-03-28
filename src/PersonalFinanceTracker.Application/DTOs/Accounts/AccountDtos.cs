@@ -9,6 +9,7 @@ public record AccountResponse(
     string Name,
     AccountType Type,
     decimal OpeningBalance,
+    decimal BalanceAtPeriodStart,
     decimal CurrentBalance,
     decimal? CreditLimit,
     decimal? AvailableCredit,
