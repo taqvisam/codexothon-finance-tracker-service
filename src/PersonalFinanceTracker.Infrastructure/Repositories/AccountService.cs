@@ -65,6 +65,7 @@ public class AccountService(
         account.CurrentBalance += openingBalanceDelta;
         account.CreditLimit = NormalizeCreditLimit(request.Type, request.CreditLimit);
         account.InstitutionName = request.InstitutionName;
+        EnsureCurrentBalanceAllowed(account);
         account.LastUpdatedAt = DateTime.UtcNow;
         activityLogger.Log(account.Id, userId, "account", "updated", $"Updated account {account.Name}.", account.Id);
         await dbContext.SaveChangesAsync(ct);
@@ -393,6 +394,14 @@ public class AccountService(
         }
 
         return account.CreditLimit.Value + account.CurrentBalance;
+    }
+
+    private static void EnsureCurrentBalanceAllowed(Account account)
+    {
+        if (account.Type != AccountType.CreditCard && account.CurrentBalance < 0)
+        {
+            throw new AppException($"Balance cannot go negative for {account.Name}.", 400);
+        }
     }
 
     private static void EnsureSufficientSourceCapacity(Account account, decimal amount)

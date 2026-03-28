@@ -270,6 +270,7 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
                 throw new AppException($"Transaction amount must be greater than zero for account {sourceAccount.Name}.", 400);
             }
 
+            EnsureSufficientBalance(sourceAccount, transactionType, row.Amount);
             ApplyBalance(sourceAccount, transactionType, row.Amount);
             if (transactionType == TransactionType.Transfer && transferAccount is not null)
             {
@@ -402,6 +403,30 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
             case TransactionType.Transfer:
                 account.CurrentBalance -= amount;
                 break;
+        }
+    }
+
+    private static void EnsureSufficientBalance(Account account, TransactionType type, decimal amount)
+    {
+        if (type is not (TransactionType.Expense or TransactionType.Transfer))
+        {
+            return;
+        }
+
+        if (account.Type == AccountType.CreditCard)
+        {
+            var availableCredit = (account.CreditLimit ?? 0) + account.CurrentBalance;
+            if (availableCredit < amount)
+            {
+                throw new AppException($"Limit exceeded for {account.Name}.", 400);
+            }
+
+            return;
+        }
+
+        if (account.CurrentBalance < amount)
+        {
+            throw new AppException($"Insufficient funds in {account.Name}.", 400);
         }
     }
 
