@@ -39,6 +39,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<AppDbContext>("database")
     .AddCheck<AuthSchemaHealthCheck>("authSchema")
+    .AddCheck<AccountSchemaHealthCheck>("accountSchema")
     .AddCheck<GoogleOAuthHealthCheck>("googleAuth");
 builder.Services.AddSwaggerGen(options =>
 {
@@ -279,11 +280,12 @@ else
 if (!skipCriticalAuthSchemaBootstrap)
 {
     await AuthSchemaBootstrapper.EnsureCriticalColumnsAsync(app.Services, app.Lifetime.ApplicationStopping);
+    await AccountSchemaBootstrapper.EnsureCreditLimitColumnAsync(app.Services, app.Lifetime.ApplicationStopping);
 }
 else
 {
     var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
-    logger.LogInformation("Skipping critical auth schema bootstrap because Database:SkipCriticalAuthSchemaBootstrap=true.");
+    logger.LogInformation("Skipping critical schema bootstrap because Database:SkipCriticalAuthSchemaBootstrap=true.");
 }
 
 app.UseCors("Frontend");
@@ -327,12 +329,14 @@ app.MapHealthChecks("/health", new HealthCheckOptions
                 api = report.Status.ToString(),
                 database = ReadStatus(report, "database"),
                 authSchema = ReadStatus(report, "authSchema"),
+                accountSchema = ReadStatus(report, "accountSchema"),
                 googleAuth = ReadStatus(report, "googleAuth")
             },
             details = new
             {
                 database = ReadDetails(report, "database"),
                 authSchema = ReadDetails(report, "authSchema"),
+                accountSchema = ReadDetails(report, "accountSchema"),
                 googleAuth = ReadDetails(report, "googleAuth")
             }
         };
