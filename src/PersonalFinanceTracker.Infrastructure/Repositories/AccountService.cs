@@ -150,16 +150,51 @@ public class AccountService(
             .Select(x => new { x.UserId })
             .FirstAsync(ct);
 
-        var owner = await dbContext.Users
-            .Where(x => x.Id == account.UserId)
-            .Select(x => new AccountMemberResponse(x.Id, x.Email, x.DisplayName, AccountMemberRole.Owner, true))
-            .FirstAsync(ct);
-
-        var members = await dbContext.AccountMembers
+        var memberRows = await dbContext.AccountMembers
             .Where(x => x.AccountId == accountId)
-            .Join(dbContext.Users, m => m.UserId, u => u.Id, (m, u) => new AccountMemberResponse(u.Id, u.Email, u.DisplayName, m.Role, false))
-            .OrderBy(x => x.DisplayName)
+            .OrderBy(x => x.CreatedAt)
             .ToListAsync(ct);
+
+        var userIds = memberRows
+            .Select(x => x.UserId)
+            .Append(account.UserId)
+            .Distinct()
+            .ToList();
+
+        var users = await dbContext.Users
+            .Where(x => userIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.Email, x.DisplayName })
+            .ToListAsync(ct);
+
+        var userLookup = users.ToDictionary(x => x.Id);
+        if (!userLookup.TryGetValue(account.UserId, out var ownerUser))
+        {
+            throw new AppException("Account owner not found.", 404);
+        }
+
+        var owner = new AccountMemberResponse(
+            ownerUser.Id,
+            ownerUser.Email,
+            ResolveDisplayName(ownerUser.DisplayName, ownerUser.Email),
+            AccountMemberRole.Owner,
+            true);
+
+        var members = memberRows
+            .Where(x => x.UserId != account.UserId)
+            .Select(member =>
+            {
+                userLookup.TryGetValue(member.UserId, out var memberUser);
+
+                var email = memberUser?.Email ?? string.Empty;
+                return new AccountMemberResponse(
+                    member.UserId,
+                    email,
+                    ResolveDisplayName(memberUser?.DisplayName, email),
+                    member.Role,
+                    false);
+            })
+            .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         return new[] { owner }.Concat(members).ToList();
     }
@@ -168,12 +203,35 @@ public class AccountService(
     {
         await accessControlService.GetAccountAccessAsync(userId, accountId, ct);
 
-        return await dbContext.AccountActivities
+        var activities = await dbContext.AccountActivities
             .Where(x => x.AccountId == accountId)
-            .Join(dbContext.Users, a => a.ActorUserId, u => u.Id, (a, u) => new AccountActivityResponse(a.Id, u.DisplayName, a.EntityType, a.Action, a.Description, a.CreatedAt))
             .OrderByDescending(x => x.CreatedAt)
             .Take(25)
             .ToListAsync(ct);
+
+        if (activities.Count == 0)
+        {
+            return [];
+        }
+
+        var actorLookup = await dbContext.Users
+            .Where(x => activities.Select(a => a.ActorUserId).Contains(x.Id))
+            .Select(x => new { x.Id, x.Email, x.DisplayName })
+            .ToDictionaryAsync(x => x.Id, ct);
+
+        return activities
+            .Select(activity =>
+            {
+                actorLookup.TryGetValue(activity.ActorUserId, out var actor);
+                return new AccountActivityResponse(
+                    activity.Id,
+                    ResolveDisplayName(actor?.DisplayName, actor?.Email),
+                    activity.EntityType,
+                    activity.Action,
+                    activity.Description,
+                    activity.CreatedAt);
+            })
+            .ToList();
     }
 
     public async Task InviteMemberAsync(Guid userId, Guid accountId, InviteAccountMemberRequest request, CancellationToken ct = default)
@@ -230,5 +288,20 @@ public class AccountService(
         member.Role = request.Role;
         activityLogger.Log(accountId, userId, "membership", "role-updated", $"Updated member role to {request.Role}.", memberUserId);
         await dbContext.SaveChangesAsync(ct);
+    }
+
+    private static string ResolveDisplayName(string? displayName, string? email)
+    {
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            return displayName.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            return email.Trim();
+        }
+
+        return "Unknown user";
     }
 }
