@@ -364,6 +364,11 @@ public class AccountService(
             throw new AppException("Account name is required.", 400);
         }
 
+        if (request.OpeningBalance < 0)
+        {
+            throw new AppException("Opening balance cannot be negative.", 400);
+        }
+
         if (request.Type == AccountType.CreditCard && (!request.CreditLimit.HasValue || request.CreditLimit.Value <= 0))
         {
             throw new AppException("Credit limit is required for credit card accounts.", 400);
@@ -397,7 +402,7 @@ public class AccountService(
             var availableCredit = GetAvailableCredit(account) ?? 0;
             if (availableCredit < amount)
             {
-                throw new AppException("Credit limit exceeded.");
+                throw new AppException($"Limit exceeded for {account.Name}.");
             }
 
             return;
@@ -405,7 +410,7 @@ public class AccountService(
 
         if (account.CurrentBalance < amount)
         {
-            throw new AppException("Insufficient balance.");
+            throw new AppException($"Insufficient funds in {account.Name}.");
         }
     }
 

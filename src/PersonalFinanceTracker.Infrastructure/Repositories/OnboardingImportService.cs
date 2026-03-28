@@ -43,6 +43,11 @@ public class OnboardingImportService(AppDbContext dbContext) : IOnboardingImport
                 throw new AppException("Account name is required in the workbook.", 400);
             }
 
+            if (accountRow.OpeningBalance < 0)
+            {
+                throw new AppException($"Opening balance cannot be negative for account '{accountName}'.", 400);
+            }
+
             if (!normalizedAccountNames.Add(accountName))
             {
                 throw new AppException($"Duplicate account name found in workbook: {accountName}", 400);

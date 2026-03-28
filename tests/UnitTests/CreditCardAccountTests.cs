@@ -23,7 +23,7 @@ public class CreditCardAccountTests
 
         var act = () => service.CreateAsync(
             userId,
-            new AccountRequest("Travel Card", AccountType.CreditCard, -1500m, null, "Axis"));
+            new AccountRequest("Travel Card", AccountType.CreditCard, 0m, null, "Axis"));
 
         var exception = await Assert.ThrowsAsync<AppException>(act);
         exception.Message.Should().Be("Credit limit is required for credit card accounts.");
@@ -39,10 +39,10 @@ public class CreditCardAccountTests
 
         var response = await service.CreateAsync(
             userId,
-            new AccountRequest("Travel Card", AccountType.CreditCard, -5000m, 75000m, "Axis"));
+            new AccountRequest("Travel Card", AccountType.CreditCard, 0m, 75000m, "Axis"));
 
         response.CreditLimit.Should().Be(75000m);
-        response.AvailableCredit.Should().Be(70000m);
+        response.AvailableCredit.Should().Be(75000m);
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public class CreditCardAccountTests
         await using var dbContext = CreateDbContext();
         var userId = await SeedUserAsync(dbContext);
         var categoryId = await SeedExpenseCategoryAsync(dbContext, userId, "Food");
-        var creditCardId = await SeedAccountAsync(dbContext, userId, "Travel Card", AccountType.CreditCard, -10000m, 30000m);
+        var creditCardId = await SeedAccountAsync(dbContext, userId, "Travel Card", AccountType.CreditCard, 0m, 30000m);
 
         var service = CreateTransactionService(dbContext);
 
@@ -61,7 +61,7 @@ public class CreditCardAccountTests
                 creditCardId,
                 categoryId,
                 TransactionType.Expense,
-                25000m,
+                35000m,
                 DateOnly.FromDateTime(DateTime.UtcNow),
                 "Airline",
                 "Vacation booking",
@@ -70,7 +70,7 @@ public class CreditCardAccountTests
                 []));
 
         var exception = await Assert.ThrowsAsync<AppException>(act);
-        exception.Message.Should().Be("Credit limit exceeded.");
+        exception.Message.Should().Be("Limit exceeded for Travel Card.");
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class CreditCardAccountTests
         var userId = await SeedUserAsync(dbContext);
         var categoryId = await SeedExpenseCategoryAsync(dbContext, userId, "Food");
         var bankAccountId = await SeedAccountAsync(dbContext, userId, "Checking", AccountType.Bank, 100000m);
-        var creditCardId = await SeedAccountAsync(dbContext, userId, "Travel Card", AccountType.CreditCard, -5000m, 50000m);
+        var creditCardId = await SeedAccountAsync(dbContext, userId, "Travel Card", AccountType.CreditCard, 0m, 50000m);
 
         var transactionService = CreateTransactionService(dbContext);
         var accountService = CreateAccountService(dbContext);
@@ -111,9 +111,9 @@ public class CreditCardAccountTests
         var updatedCard = (await accountService.GetAllAsync(userId))
             .Single(account => account.Id == creditCardId);
 
-        updatedCard.CurrentBalance.Should().Be(-8000m);
+        updatedCard.CurrentBalance.Should().Be(-3000m);
         updatedCard.CreditLimit.Should().Be(50000m);
-        updatedCard.AvailableCredit.Should().Be(42000m);
+        updatedCard.AvailableCredit.Should().Be(47000m);
     }
 
     private static AppDbContext CreateDbContext()

@@ -280,7 +280,7 @@ public class TransactionService(
             var availableCredit = (account.CreditLimit ?? 0) + account.CurrentBalance;
             if (availableCredit < amount)
             {
-                throw new AppException("Credit limit exceeded.");
+                throw new AppException($"Limit exceeded for {account.Name}.");
             }
 
             return;
@@ -288,7 +288,7 @@ public class TransactionService(
 
         if (account.CurrentBalance < amount)
         {
-            throw new AppException("Insufficient balance.");
+            throw new AppException($"Insufficient funds in {account.Name}.");
         }
     }
 
