@@ -22,11 +22,21 @@ public class AccountsController(IAccountService accountService) : ControllerBase
     public async Task<IActionResult> Update(Guid id, [FromBody] AccountRequest request, CancellationToken ct)
         => Ok(await accountService.UpdateAsync(User.GetUserId(), id, request, ct));
 
+    [HttpGet("{id:guid}/delete-impact")]
+    public async Task<IActionResult> DeleteImpact(Guid id, CancellationToken ct)
+        => Ok(await accountService.GetDeleteImpactAsync(User.GetUserId(), id, ct));
+
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    public async Task<IActionResult> Delete(Guid id, [FromBody] DeleteAccountRequest? request, CancellationToken ct)
     {
-        await accountService.DeleteAsync(User.GetUserId(), id, ct);
-        return Ok(new { message = "Account deleted." });
+        var deleteRelatedData = request?.DeleteRelatedData ?? false;
+        await accountService.DeleteAsync(User.GetUserId(), id, deleteRelatedData, ct);
+        return Ok(new
+        {
+            message = deleteRelatedData
+                ? "Account and linked data deleted."
+                : "Account deleted."
+        });
     }
 
     [HttpPost("transfer")]

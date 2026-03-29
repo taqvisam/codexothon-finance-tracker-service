@@ -104,7 +104,21 @@ public class AccountService(
         return ToResponse(account, false, account.OpeningBalance);
     }
 
-    public async Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default)
+    public async Task<DeleteAccountImpactResponse> GetDeleteImpactAsync(Guid userId, Guid id, CancellationToken ct = default)
+    {
+        var account = await dbContext.Accounts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new AppException("Account not found.", 404);
+        if (account.UserId != userId)
+        {
+            throw new AppException("Only account owner can delete account.", 403);
+        }
+
+        return await BuildDeleteImpactAsync(account, ct);
+    }
+
+    public async Task DeleteAsync(Guid userId, Guid id, bool deleteRelatedData, CancellationToken ct = default)
     {
         var account = await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == id, ct)
             ?? throw new AppException("Account not found.", 404);
@@ -113,31 +127,92 @@ public class AccountService(
             throw new AppException("Only account owner can delete account.", 403);
         }
 
-        var hasTransactions = await dbContext.Transactions.AnyAsync(
-            x => x.AccountId == id || x.TransferAccountId == id,
-            ct
-        );
-        if (hasTransactions)
+        var impact = await BuildDeleteImpactAsync(account, ct);
+        if (impact.RequiresCascadeDelete && !deleteRelatedData)
         {
-            throw new AppException("Cannot delete account with existing transactions.");
+            throw new AppException(
+                "Deleting this account will also remove related transactions, goals, recurring items, and budgets. Confirm forced deletion to continue.",
+                409);
         }
 
-        var hasRecurring = await dbContext.RecurringTransactions.AnyAsync(x => x.AccountId == id, ct);
-        if (hasRecurring)
+        if (!impact.RequiresCascadeDelete)
         {
-            throw new AppException("Cannot delete account linked to recurring transactions.");
+            dbContext.AccountMembers.RemoveRange(dbContext.AccountMembers.Where(x => x.AccountId == id));
+            dbContext.AccountActivities.RemoveRange(dbContext.AccountActivities.Where(x => x.AccountId == id));
+            dbContext.Accounts.Remove(account);
+            await dbContext.SaveChangesAsync(ct);
+            return;
         }
 
-        var hasGoals = await dbContext.Goals.AnyAsync(x => x.LinkedAccountId == id, ct);
-        if (hasGoals)
+        var linkedTransactions = await dbContext.Transactions
+            .Where(x => x.AccountId == id || x.TransferAccountId == id)
+            .ToListAsync(ct);
+        var linkedTransactionIds = linkedTransactions.Select(x => x.Id).ToHashSet();
+        var affectedRemainingAccountIds = linkedTransactions
+            .SelectMany(transaction => new[] { transaction.AccountId, transaction.TransferAccountId })
+            .Where(accountId => accountId.HasValue && accountId.Value != id)
+            .Select(accountId => accountId!.Value)
+            .Distinct()
+            .ToList();
+
+        var linkedGoals = await dbContext.Goals.Where(x => x.LinkedAccountId == id).ToListAsync(ct);
+        var linkedGoalIds = linkedGoals.Select(x => x.Id).ToHashSet();
+
+        var linkedRecurring = await dbContext.RecurringTransactions.Where(x => x.AccountId == id).ToListAsync(ct);
+        var linkedRecurringIds = linkedRecurring.Select(x => x.Id).ToHashSet();
+
+        var linkedBudgets = await dbContext.Budgets.Where(x => x.AccountId == id).ToListAsync(ct);
+        var linkedBudgetIds = linkedBudgets.Select(x => x.Id).ToHashSet();
+
+        var linkedActivities = await dbContext.AccountActivities
+            .Where(x =>
+                x.AccountId == id
+                || (x.EntityId.HasValue
+                    && (linkedTransactionIds.Contains(x.EntityId.Value)
+                        || linkedGoalIds.Contains(x.EntityId.Value)
+                        || linkedRecurringIds.Contains(x.EntityId.Value)
+                        || linkedBudgetIds.Contains(x.EntityId.Value))))
+            .ToListAsync(ct);
+
+        var linkedMembers = await dbContext.AccountMembers.Where(x => x.AccountId == id).ToListAsync(ct);
+
+        if (linkedActivities.Count > 0)
         {
-            throw new AppException("Cannot delete account linked to goals.");
+            dbContext.AccountActivities.RemoveRange(linkedActivities);
         }
 
-        dbContext.AccountMembers.RemoveRange(dbContext.AccountMembers.Where(x => x.AccountId == id));
-        dbContext.AccountActivities.RemoveRange(dbContext.AccountActivities.Where(x => x.AccountId == id));
+        if (linkedMembers.Count > 0)
+        {
+            dbContext.AccountMembers.RemoveRange(linkedMembers);
+        }
+
+        if (linkedBudgets.Count > 0)
+        {
+            dbContext.Budgets.RemoveRange(linkedBudgets);
+        }
+
+        if (linkedGoals.Count > 0)
+        {
+            dbContext.Goals.RemoveRange(linkedGoals);
+        }
+
+        if (linkedRecurring.Count > 0)
+        {
+            dbContext.RecurringTransactions.RemoveRange(linkedRecurring);
+        }
+
+        if (linkedTransactions.Count > 0)
+        {
+            dbContext.Transactions.RemoveRange(linkedTransactions);
+        }
+
         dbContext.Accounts.Remove(account);
         await dbContext.SaveChangesAsync(ct);
+
+        if (affectedRemainingAccountIds.Count > 0)
+        {
+            await RecalculateCurrentBalancesAsync(affectedRemainingAccountIds, ct);
+        }
     }
 
     public async Task TransferAsync(Guid userId, TransferRequest request, CancellationToken ct = default)
@@ -445,6 +520,52 @@ public class AccountService(
         }
 
         return balances;
+    }
+
+    private async Task<DeleteAccountImpactResponse> BuildDeleteImpactAsync(Account account, CancellationToken ct)
+    {
+        var transactionCount = await dbContext.Transactions.CountAsync(
+            x => x.AccountId == account.Id || x.TransferAccountId == account.Id,
+            ct);
+        var goalCount = await dbContext.Goals.CountAsync(x => x.LinkedAccountId == account.Id, ct);
+        var recurringCount = await dbContext.RecurringTransactions.CountAsync(x => x.AccountId == account.Id, ct);
+        var budgetCount = await dbContext.Budgets.CountAsync(x => x.AccountId == account.Id, ct);
+
+        return new DeleteAccountImpactResponse(
+            account.Id,
+            account.Name,
+            transactionCount,
+            goalCount,
+            recurringCount,
+            budgetCount,
+            transactionCount > 0 || goalCount > 0 || recurringCount > 0 || budgetCount > 0);
+    }
+
+    private async Task RecalculateCurrentBalancesAsync(IReadOnlyCollection<Guid> accountIds, CancellationToken ct)
+    {
+        var accounts = await dbContext.Accounts
+            .Where(x => accountIds.Contains(x.Id))
+            .ToListAsync(ct);
+        if (accounts.Count == 0)
+        {
+            return;
+        }
+
+        var transactions = await dbContext.Transactions
+            .AsNoTracking()
+            .Where(x => accountIds.Contains(x.AccountId) || (x.TransferAccountId.HasValue && accountIds.Contains(x.TransferAccountId.Value)))
+            .Select(x => new AccountBalanceEvent(x.AccountId, x.TransferAccountId, x.Type, x.Amount))
+            .ToListAsync(ct);
+
+        var balances = CalculateBalancesAtPeriodStart(accounts, transactions);
+        var now = DateTime.UtcNow;
+        foreach (var remainingAccount in accounts)
+        {
+            remainingAccount.CurrentBalance = balances[remainingAccount.Id];
+            remainingAccount.LastUpdatedAt = now;
+        }
+
+        await dbContext.SaveChangesAsync(ct);
     }
 
     private static void EnsureValidAccountRequest(AccountRequest request)
