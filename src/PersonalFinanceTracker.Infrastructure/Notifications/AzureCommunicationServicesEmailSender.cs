@@ -31,6 +31,22 @@ public class AzureCommunicationServicesEmailSender(IConfiguration configuration)
                 Html = string.IsNullOrWhiteSpace(message.HtmlBody) ? message.PlainTextBody : message.HtmlBody
             };
             var payload = new EmailMessage(fromAddress, recipients, content);
+            if (message.Attachments is { Count: > 0 })
+            {
+                foreach (var attachment in message.Attachments)
+                {
+                    var emailAttachment = new EmailAttachment(
+                        attachment.FileName,
+                        attachment.ContentType,
+                        BinaryData.FromBytes(attachment.Content));
+                    if (!string.IsNullOrWhiteSpace(attachment.ContentId))
+                    {
+                        emailAttachment.ContentId = attachment.ContentId;
+                    }
+
+                    payload.Attachments.Add(emailAttachment);
+                }
+            }
 
             await emailClient.SendAsync(WaitUntil.Completed, payload, ct);
         }

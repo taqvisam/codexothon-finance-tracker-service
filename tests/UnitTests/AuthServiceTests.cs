@@ -32,6 +32,8 @@ public class AuthServiceTests
         CapturingEmailSender.SentMessages.Should().HaveCount(2);
         CapturingEmailSender.SentMessages[0].ToAddress.Should().Be(email);
         CapturingEmailSender.SentMessages[0].Subject.Should().Contain("onboarding sample");
+        CapturingEmailSender.SentMessages[0].Attachments.Should().ContainSingle();
+        CapturingEmailSender.SentMessages[0].Attachments![0].FileName.Should().Be("sample-onboarding-import-v2.xlsx");
         CapturingEmailSender.SentMessages[1].ToAddress.Should().Be(email);
         CapturingEmailSender.SentMessages[1].PlainTextBody.Should().Contain(Uri.EscapeDataString(resetToken!));
 
@@ -80,10 +82,13 @@ public class AuthServiceTests
     private static AuthService CreateAuthService(AppDbContext dbContext, IDictionary<string, string?> settings)
     {
         CapturingEmailSender.Reset();
+        var workbookPath = Path.Combine(Path.GetTempPath(), $"onboarding-sample-{Guid.NewGuid():N}.xlsx");
+        File.WriteAllBytes(workbookPath, [0x01, 0x02, 0x03, 0x04]);
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>(settings)
             {
                 ["App:BaseUrl"] = "https://example.test",
+                ["Email:OnboardingWorkbookPath"] = workbookPath,
                 ["Jwt:Key"] = "ChangeThisInProduction_AtLeast32Chars",
                 ["Jwt:Issuer"] = "PersonalFinanceTracker",
                 ["Jwt:Audience"] = "PersonalFinanceTrackerClients"

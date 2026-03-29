@@ -489,26 +489,29 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         try
         {
             var workbookLink = BuildOnboardingWorkbookLink();
+            var workbookAttachment = await LoadOnboardingWorkbookAttachmentAsync(ct);
             await emailSender.SendAsync(
                 new AppEmailMessage(
                     user.Email,
                     "Your onboarding sample workbook is ready",
-                    $"We have sent your onboarding sample worksheet. Download it here: {workbookLink}",
+                    $"We have attached your onboarding sample worksheet to this email. If the attachment is missing, download it here: {workbookLink}",
                     $$"""
                     <html>
                       <body style="font-family:Segoe UI,Arial,sans-serif;color:#1f2937;">
                         <h2 style="margin-bottom:12px;">Your onboarding sample worksheet is ready</h2>
                         <p>We have prepared a sample onboarding workbook to help you populate accounts, budgets, goals, recurring items, rules, and transactions quickly.</p>
+                        <p>The workbook is attached to this email for direct use during onboarding.</p>
                         <p>
                           <a href="{{workbookLink}}" style="display:inline-block;padding:12px 18px;background:#2ea05f;color:#ffffff;text-decoration:none;border-radius:8px;">
-                            Download sample workbook
+                            Download another copy
                           </a>
                         </p>
                         <p>You can also use the same workbook from the onboarding page if you prefer downloading it there.</p>
                       </body>
                     </html>
                     """,
-                    user.DisplayName),
+                    user.DisplayName,
+                    [workbookAttachment]),
                 ct);
             user.OnboardingWorkbookEmailSentAt = DateTime.UtcNow;
             await dbContext.SaveChangesAsync(ct);
@@ -530,5 +533,25 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         }
 
         return $"{baseUrl}/sample-onboarding-import-v2.xlsx";
+    }
+
+    private async Task<AppEmailAttachment> LoadOnboardingWorkbookAttachmentAsync(CancellationToken ct)
+    {
+        var workbookPath = configuration["Email:OnboardingWorkbookPath"];
+        if (string.IsNullOrWhiteSpace(workbookPath))
+        {
+            workbookPath = Path.Combine(AppContext.BaseDirectory, "Assets", "sample-onboarding-import-v2.xlsx");
+        }
+
+        if (!File.Exists(workbookPath))
+        {
+            throw new AppException("Onboarding workbook asset is missing for email attachments.", 500);
+        }
+
+        var content = await File.ReadAllBytesAsync(workbookPath, ct);
+        return new AppEmailAttachment(
+            "sample-onboarding-import-v2.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            content);
     }
 }
