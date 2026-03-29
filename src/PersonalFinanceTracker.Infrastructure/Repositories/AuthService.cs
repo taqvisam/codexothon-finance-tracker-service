@@ -7,6 +7,7 @@ using FluentValidation;
 using Google.Apis.Auth;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using PersonalFinanceTracker.Application.DTOs.Auth;
 using PersonalFinanceTracker.Application.Interfaces;
@@ -18,7 +19,11 @@ using PersonalFinanceTracker.Infrastructure.Data;
 
 namespace PersonalFinanceTracker.Infrastructure.Repositories;
 
-public class AuthService(AppDbContext dbContext, IConfiguration configuration, IEmailSender emailSender) : IAuthService
+public class AuthService(
+    AppDbContext dbContext,
+    IConfiguration configuration,
+    IEmailSender emailSender,
+    ILogger<AuthService> logger) : IAuthService
 {
     private readonly RegisterRequestValidator _registerValidator = new();
     private readonly LoginRequestValidator _loginValidator = new();
@@ -490,37 +495,68 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         try
         {
             var workbookLink = BuildOnboardingWorkbookLink();
-            var workbookAttachment = await LoadOnboardingWorkbookAttachmentAsync(ct);
-            await emailSender.SendAsync(
-                new AppEmailMessage(
-                    user.Email,
-                    "Your onboarding sample workbook is ready",
-                    $"We have attached your onboarding sample worksheet to this email. If the attachment is missing, download it here: {workbookLink}",
-                    $$"""
-                    <html>
-                      <body style="font-family:Segoe UI,Arial,sans-serif;color:#1f2937;">
-                        <h2 style="margin-bottom:12px;">Your onboarding sample worksheet is ready</h2>
-                        <p>We have prepared a sample onboarding workbook to help you populate accounts, budgets, goals, recurring items, rules, and transactions quickly.</p>
-                        <p>The workbook is attached to this email for direct use during onboarding.</p>
-                        <p>
-                          <a href="{{workbookLink}}" style="display:inline-block;padding:12px 18px;background:#2ea05f;color:#ffffff;text-decoration:none;border-radius:8px;">
-                            Download another copy
-                          </a>
-                        </p>
-                        <p>You can also use the same workbook from the onboarding page if you prefer downloading it there.</p>
-                      </body>
-                    </html>
-                    """,
-                    user.DisplayName,
-                    [workbookAttachment]),
-                ct);
+            try
+            {
+                var workbookAttachment = await LoadOnboardingWorkbookAttachmentAsync(ct);
+                await emailSender.SendAsync(
+                    new AppEmailMessage(
+                        user.Email,
+                        "Your onboarding sample workbook is ready",
+                        $"We have attached your onboarding sample worksheet to this email. If the attachment is missing, download it here: {workbookLink}",
+                        $$"""
+                        <html>
+                          <body style="font-family:Segoe UI,Arial,sans-serif;color:#1f2937;">
+                            <h2 style="margin-bottom:12px;">Your onboarding sample worksheet is ready</h2>
+                            <p>We have prepared a sample onboarding workbook to help you populate accounts, budgets, goals, recurring items, rules, and transactions quickly.</p>
+                            <p>The workbook is attached to this email for direct use during onboarding.</p>
+                            <p>
+                              <a href="{{workbookLink}}" style="display:inline-block;padding:12px 18px;background:#2ea05f;color:#ffffff;text-decoration:none;border-radius:8px;">
+                                Download another copy
+                              </a>
+                            </p>
+                            <p>You can also use the same workbook from the onboarding page if you prefer downloading it there.</p>
+                          </body>
+                        </html>
+                        """,
+                        user.DisplayName,
+                        [workbookAttachment]),
+                    ct);
+            }
+            catch (Exception ex)
+            {
+                ct.ThrowIfCancellationRequested();
+                logger.LogWarning(ex, "Failed to send onboarding workbook attachment for {Email}. Falling back to link-only email.", user.Email);
+                await emailSender.SendAsync(
+                    new AppEmailMessage(
+                        user.Email,
+                        "Your onboarding sample workbook is ready",
+                        $"We have prepared your onboarding sample worksheet. Download it here: {workbookLink}",
+                        $$"""
+                        <html>
+                          <body style="font-family:Segoe UI,Arial,sans-serif;color:#1f2937;">
+                            <h2 style="margin-bottom:12px;">Your onboarding sample worksheet is ready</h2>
+                            <p>We have prepared a sample onboarding workbook to help you populate accounts, budgets, goals, recurring items, rules, and transactions quickly.</p>
+                            <p>
+                              <a href="{{workbookLink}}" style="display:inline-block;padding:12px 18px;background:#2ea05f;color:#ffffff;text-decoration:none;border-radius:8px;">
+                                Download sample workbook
+                              </a>
+                            </p>
+                            <p>Use this workbook during onboarding. If the email is not in your inbox, check spam as well.</p>
+                          </body>
+                        </html>
+                        """,
+                        user.DisplayName),
+                    ct);
+            }
+
             user.OnboardingWorkbookEmailSentAt = DateTime.UtcNow;
             await dbContext.SaveChangesAsync(ct);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
             ct.ThrowIfCancellationRequested();
+            logger.LogError(ex, "Failed to send onboarding workbook email for {Email}.", user.Email);
             return false;
         }
     }

@@ -23,10 +23,23 @@ public sealed class EmailHealthCheck(IConfiguration configuration) : IHealthChec
                 !string.IsNullOrWhiteSpace(fromAddress) &&
                 !string.IsNullOrWhiteSpace(appBaseUrl);
 
-            return Task.FromResult(
-                configured
-                    ? HealthCheckResult.Healthy("Azure Communication Services email is configured.")
-                    : HealthCheckResult.Degraded("Azure Communication Services email settings are incomplete."));
+            if (!configured)
+            {
+                return Task.FromResult(HealthCheckResult.Degraded("Azure Communication Services email settings are incomplete."));
+            }
+
+            var workbookPath = configuration["Email:OnboardingWorkbookPath"];
+            if (string.IsNullOrWhiteSpace(workbookPath))
+            {
+                workbookPath = Path.Combine(AppContext.BaseDirectory, "Assets", "sample-onboarding-import-v2.xlsx");
+            }
+
+            if (!File.Exists(workbookPath))
+            {
+                return Task.FromResult(HealthCheckResult.Degraded("Azure Communication Services email is configured, but onboarding workbook attachment asset is missing."));
+            }
+
+            return Task.FromResult(HealthCheckResult.Healthy("Azure Communication Services email is configured and onboarding workbook asset is present."));
         }
 
         return Task.FromResult(HealthCheckResult.Degraded($"Unsupported email provider '{provider}'."));

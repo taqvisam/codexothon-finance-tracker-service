@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using PersonalFinanceTracker.Application.DTOs.Auth;
 using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Infrastructure.Data;
@@ -75,6 +76,24 @@ public class AuthServiceTests
         user.ProfileImageUrl.Should().BeNull();
     }
 
+    [Fact]
+    public async Task Register_Should_Fallback_To_Link_Email_When_Workbook_Attachment_Is_Missing()
+    {
+        await using var dbContext = CreateDbContext();
+        var service = CreateAuthService(
+            dbContext,
+            new Dictionary<string, string?>(),
+            workbookPath: Path.Combine(Path.GetTempPath(), $"missing-sample-{Guid.NewGuid():N}.xlsx"));
+
+        var email = $"fallback.{Guid.NewGuid():N}@example.com";
+        var auth = await service.RegisterAsync(new RegisterRequest(email, "Fallback@123", "Fallback User"));
+
+        auth.ShowOnboardingWorkbookEmailMessage.Should().BeTrue();
+        CapturingEmailSender.SentMessages.Should().ContainSingle();
+        CapturingEmailSender.SentMessages[0].Attachments.Should().BeNull();
+        CapturingEmailSender.SentMessages[0].PlainTextBody.Should().Contain("Download it here");
+    }
+
     private static AppDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -83,11 +102,25 @@ public class AuthServiceTests
         return new AppDbContext(options);
     }
 
-    private static AuthService CreateAuthService(AppDbContext dbContext, IDictionary<string, string?> settings)
+    private static AuthService CreateAuthService(
+        AppDbContext dbContext,
+        IDictionary<string, string?> settings,
+        string? workbookPath = null)
     {
         CapturingEmailSender.Reset();
-        var workbookPath = Path.Combine(Path.GetTempPath(), $"onboarding-sample-{Guid.NewGuid():N}.xlsx");
-        File.WriteAllBytes(workbookPath, [0x01, 0x02, 0x03, 0x04]);
+        var shouldCreateWorkbook = string.IsNullOrWhiteSpace(workbookPath);
+        workbookPath ??= Path.Combine(Path.GetTempPath(), $"onboarding-sample-{Guid.NewGuid():N}.xlsx");
+        if (shouldCreateWorkbook && !File.Exists(workbookPath))
+        {
+            var directory = Path.GetDirectoryName(workbookPath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.WriteAllBytes(workbookPath, [0x01, 0x02, 0x03, 0x04]);
+        }
+
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>(settings)
             {
@@ -99,7 +132,7 @@ public class AuthServiceTests
             })
             .Build();
 
-        return new AuthService(dbContext, configuration, new CapturingEmailSender());
+        return new AuthService(dbContext, configuration, new CapturingEmailSender(), NullLogger<AuthService>.Instance);
     }
 
     private sealed class CapturingEmailSender : IEmailSender
