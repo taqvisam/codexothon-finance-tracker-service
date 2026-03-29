@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using PersonalFinanceTracker.Application.DTOs.Accounts;
 using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Application.Services;
@@ -11,7 +12,9 @@ namespace PersonalFinanceTracker.Infrastructure.Repositories;
 public class AccountService(
     AppDbContext dbContext,
     IAccessControlService accessControlService,
-    AccountActivityLogger activityLogger) : IAccountService
+    AccountActivityLogger activityLogger,
+    IEmailSender emailSender,
+    IConfiguration configuration) : IAccountService
 {
     private sealed record AccountBalanceEvent(Guid AccountId, Guid? TransferAccountId, TransactionType Type, decimal Amount);
 
@@ -426,6 +429,36 @@ public class AccountService(
         });
         activityLogger.Log(accountId, userId, "membership", "invited", $"Invited {invitedUser.DisplayName} as {request.Role}.", invitedUser.Id);
         await dbContext.SaveChangesAsync(ct);
+
+        var owner = await dbContext.Users
+            .AsNoTracking()
+            .Where(x => x.Id == userId)
+            .Select(x => new { x.Email, x.DisplayName })
+            .FirstOrDefaultAsync(ct);
+        var ownerName = ResolveDisplayName(owner?.DisplayName, owner?.Email);
+        var appUrl = configuration["App:BaseUrl"]?.TrimEnd('/')
+            ?? throw new AppException("Application base URL is not configured for email links.", 500);
+
+        await emailSender.SendAsync(
+            new AppEmailMessage(
+                invitedUser.Email,
+                $"You have been added to {account.Name}",
+                $"{ownerName} added you to the shared account \"{account.Name}\" as {request.Role}. Open the app here: {appUrl}",
+                $$"""
+                <html>
+                  <body style="font-family:Segoe UI,Arial,sans-serif;color:#1f2937;">
+                    <h2 style="margin-bottom:12px;">Shared account invitation</h2>
+                    <p><strong>{{ownerName}}</strong> added you to the shared account <strong>{{account.Name}}</strong> as <strong>{{request.Role}}</strong>.</p>
+                    <p>
+                      <a href="{{appUrl}}" style="display:inline-block;padding:12px 18px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;">
+                        Open Personal Finance Tracker
+                      </a>
+                    </p>
+                  </body>
+                </html>
+                """,
+                invitedUser.DisplayName),
+            ct);
     }
 
     public async Task UpdateMemberAsync(Guid userId, Guid accountId, Guid memberUserId, UpdateAccountMemberRequest request, CancellationToken ct = default)

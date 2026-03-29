@@ -1,6 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
+using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Application.Services;
 using PersonalFinanceTracker.Domain.Entities;
 using PersonalFinanceTracker.Domain.Enums;
@@ -197,6 +199,17 @@ public class AccountDeleteTests
 
     private static AccountService CreateService(AppDbContext dbContext)
     {
-        return new AccountService(dbContext, new AccessControlService(dbContext), new AccountActivityLogger(dbContext));
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["App:BaseUrl"] = "https://example.test"
+            })
+            .Build();
+        return new AccountService(dbContext, new AccessControlService(dbContext), new AccountActivityLogger(dbContext), new NoOpEmailSender(), configuration);
+    }
+
+    private sealed class NoOpEmailSender : IEmailSender
+    {
+        public Task SendAsync(AppEmailMessage message, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

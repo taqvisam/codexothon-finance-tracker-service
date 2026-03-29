@@ -1,8 +1,10 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 using PersonalFinanceTracker.Application.DTOs.Accounts;
 using PersonalFinanceTracker.Application.DTOs.Onboarding;
+using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Application.Services;
 using PersonalFinanceTracker.Domain.Entities;
 using PersonalFinanceTracker.Domain.Enums;
@@ -19,7 +21,12 @@ public class AccountBalanceGuardTests
         await using var dbContext = CreateDbContext();
         var userId = await SeedUserAsync(dbContext);
         var accountId = await SeedAccountAsync(dbContext, userId, "Pocket Cash", AccountType.CashWallet, 1500m, 600m);
-        var service = new AccountService(dbContext, new AccessControlService(dbContext), new AccountActivityLogger(dbContext));
+        var service = new AccountService(
+            dbContext,
+            new AccessControlService(dbContext),
+            new AccountActivityLogger(dbContext),
+            new NoOpEmailSender(),
+            CreateConfiguration());
 
         var act = () => service.UpdateAsync(
             userId,
@@ -114,5 +121,17 @@ public class AccountBalanceGuardTests
         dbContext.Accounts.Add(account);
         await dbContext.SaveChangesAsync();
         return account.Id;
+    }
+
+    private static IConfiguration CreateConfiguration() => new ConfigurationBuilder()
+        .AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["App:BaseUrl"] = "https://example.test"
+        })
+        .Build();
+
+    private sealed class NoOpEmailSender : IEmailSender
+    {
+        public Task SendAsync(AppEmailMessage message, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

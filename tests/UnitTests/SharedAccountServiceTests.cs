@@ -1,5 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using PersonalFinanceTracker.Application.DTOs.Accounts;
+using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Domain.Entities;
 using PersonalFinanceTracker.Domain.Enums;
 using PersonalFinanceTracker.Infrastructure.Data;
@@ -152,6 +155,48 @@ public class SharedAccountServiceTests
         activity.Select(item => item.ActorName).Should().Contain(["Owner User", "Member User"]);
     }
 
+    [Fact]
+    public async Task InviteMemberAsync_Should_Send_Email_To_Invited_User()
+    {
+        await using var dbContext = CreateDbContext();
+        var ownerId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+
+        dbContext.Users.AddRange(
+            new User
+            {
+                Id = ownerId,
+                Email = "owner@example.com",
+                DisplayName = "Owner User"
+            },
+            new User
+            {
+                Id = memberId,
+                Email = "member@example.com",
+                DisplayName = "Member User"
+            });
+        dbContext.Accounts.Add(new Account
+        {
+            Id = accountId,
+            UserId = ownerId,
+            Name = "Family Shared",
+            Type = AccountType.Bank,
+            OpeningBalance = 1000,
+            CurrentBalance = 1000
+        });
+        await dbContext.SaveChangesAsync();
+
+        CapturingEmailSender.Reset();
+        var service = CreateService(dbContext);
+
+        await service.InviteMemberAsync(ownerId, accountId, new InviteAccountMemberRequest("member@example.com", AccountMemberRole.Viewer));
+
+        CapturingEmailSender.SentMessages.Should().ContainSingle();
+        CapturingEmailSender.SentMessages[0].ToAddress.Should().Be("member@example.com");
+        CapturingEmailSender.SentMessages[0].Subject.Should().Contain("Family Shared");
+    }
+
     private static AppDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -164,6 +209,25 @@ public class SharedAccountServiceTests
     {
         var accessControlService = new AccessControlService(dbContext);
         var activityLogger = new AccountActivityLogger(dbContext);
-        return new AccountService(dbContext, accessControlService, activityLogger);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["App:BaseUrl"] = "https://example.test"
+            })
+            .Build();
+        return new AccountService(dbContext, accessControlService, activityLogger, new CapturingEmailSender(), configuration);
+    }
+
+    private sealed class CapturingEmailSender : IEmailSender
+    {
+        public static List<AppEmailMessage> SentMessages { get; } = [];
+
+        public Task SendAsync(AppEmailMessage message, CancellationToken ct = default)
+        {
+            SentMessages.Add(message);
+            return Task.CompletedTask;
+        }
+
+        public static void Reset() => SentMessages.Clear();
     }
 }

@@ -1,6 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
+using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Domain.Entities;
 using PersonalFinanceTracker.Domain.Enums;
 using PersonalFinanceTracker.Infrastructure.Data;
@@ -80,7 +82,12 @@ public class AccountPeriodStartBalanceTests
             });
         await dbContext.SaveChangesAsync();
 
-        var service = new AccountService(dbContext, new AccessControlService(dbContext), new AccountActivityLogger(dbContext));
+        var service = new AccountService(
+            dbContext,
+            new AccessControlService(dbContext),
+            new AccountActivityLogger(dbContext),
+            new NoOpEmailSender(),
+            CreateConfiguration());
 
         var accounts = await service.GetAllAsync(userId, new DateOnly(2026, 3, 1));
 
@@ -99,5 +106,17 @@ public class AccountPeriodStartBalanceTests
             .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new AppDbContext(options);
+    }
+
+    private static IConfiguration CreateConfiguration() => new ConfigurationBuilder()
+        .AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["App:BaseUrl"] = "https://example.test"
+        })
+        .Build();
+
+    private sealed class NoOpEmailSender : IEmailSender
+    {
+        public Task SendAsync(AppEmailMessage message, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

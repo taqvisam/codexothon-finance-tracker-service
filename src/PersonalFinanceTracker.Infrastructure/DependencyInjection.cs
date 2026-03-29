@@ -5,6 +5,7 @@ using Npgsql;
 using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Infrastructure.BackgroundJobs;
 using PersonalFinanceTracker.Infrastructure.Data;
+using PersonalFinanceTracker.Infrastructure.Notifications;
 using PersonalFinanceTracker.Infrastructure.Repositories;
 
 namespace PersonalFinanceTracker.Infrastructure;
@@ -34,6 +35,7 @@ public static class DependencyInjection
         services.AddScoped<IRuleService, RuleService>();
         services.AddScoped<IRuleEngineService, RuleEngineService>();
         services.AddScoped<AccountActivityLogger>();
+        RegisterEmailSender(services, config);
 
         services.AddHostedService<RecurringTransactionWorker>();
 
@@ -118,5 +120,17 @@ public static class DependencyInjection
         }
 
         return builder.ConnectionString;
+    }
+
+    private static void RegisterEmailSender(IServiceCollection services, IConfiguration config)
+    {
+        var provider = config["Email:Provider"];
+        if (string.Equals(provider, "AzureCommunicationServices", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddScoped<IEmailSender, AzureCommunicationServicesEmailSender>();
+            return;
+        }
+
+        services.AddScoped<IEmailSender, NoOpEmailSender>();
     }
 }

@@ -18,7 +18,7 @@ using PersonalFinanceTracker.Infrastructure.Data;
 
 namespace PersonalFinanceTracker.Infrastructure.Repositories;
 
-public class AuthService(AppDbContext dbContext, IConfiguration configuration) : IAuthService
+public class AuthService(AppDbContext dbContext, IConfiguration configuration, IEmailSender emailSender) : IAuthService
 {
     private readonly RegisterRequestValidator _registerValidator = new();
     private readonly LoginRequestValidator _loginValidator = new();
@@ -212,6 +212,30 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
         user.ResetPasswordTokenHash = BCrypt.Net.BCrypt.HashPassword(token);
         user.ResetPasswordTokenExpiresAt = DateTime.UtcNow.AddMinutes(30);
         await dbContext.SaveChangesAsync(ct);
+
+        var resetLink = BuildResetPasswordLink(email, token);
+        await emailSender.SendAsync(
+            new AppEmailMessage(
+                email,
+                "Reset your Personal Finance Tracker password",
+                $"We received a request to reset your password. Use this link within 30 minutes: {resetLink}",
+                $$"""
+                <html>
+                  <body style="font-family:Segoe UI,Arial,sans-serif;color:#1f2937;">
+                    <h2 style="margin-bottom:12px;">Reset your password</h2>
+                    <p>We received a request to reset your Personal Finance Tracker password.</p>
+                    <p>
+                      <a href="{{resetLink}}" style="display:inline-block;padding:12px 18px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:8px;">
+                        Reset password
+                      </a>
+                    </p>
+                    <p>This link expires in 30 minutes.</p>
+                    <p>If you did not request this, you can ignore this email.</p>
+                  </body>
+                </html>
+                """,
+                user.DisplayName),
+            ct);
 
         if (bool.TryParse(configuration["Auth:LogResetTokenForDemo"], out var logToken) && logToken)
         {
@@ -422,5 +446,18 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration) :
         }
 
         return "User";
+    }
+
+    private string BuildResetPasswordLink(string email, string token)
+    {
+        var baseUrl = configuration["App:BaseUrl"]?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            throw new AppException("Application base URL is not configured for email links.", 500);
+        }
+
+        var encodedEmail = Uri.EscapeDataString(email);
+        var encodedToken = Uri.EscapeDataString(token);
+        return $"{baseUrl}/reset-password?email={encodedEmail}&token={encodedToken}";
     }
 }

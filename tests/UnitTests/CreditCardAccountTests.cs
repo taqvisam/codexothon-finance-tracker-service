@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Moq;
 using PersonalFinanceTracker.Application.DTOs.Accounts;
 using PersonalFinanceTracker.Application.DTOs.Transactions;
@@ -128,7 +129,13 @@ public class CreditCardAccountTests
     {
         var accessControlService = new AccessControlService(dbContext);
         var activityLogger = new AccountActivityLogger(dbContext);
-        return new AccountService(dbContext, accessControlService, activityLogger);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["App:BaseUrl"] = "https://example.test"
+            })
+            .Build();
+        return new AccountService(dbContext, accessControlService, activityLogger, new NoOpEmailSender(), configuration);
     }
 
     private static TransactionService CreateTransactionService(AppDbContext dbContext)
@@ -211,5 +218,10 @@ public class CreditCardAccountTests
         dbContext.Categories.Add(category);
         await dbContext.SaveChangesAsync();
         return category.Id;
+    }
+
+    private sealed class NoOpEmailSender : IEmailSender
+    {
+        public Task SendAsync(AppEmailMessage message, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

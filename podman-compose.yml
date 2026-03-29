@@ -26,6 +26,11 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-PersonalFinanceTracker}
       Jwt__Audience: ${JWT_AUDIENCE:-PersonalFinanceTrackerClients}
       OAuth__Google__ClientId: ${OAUTH_GOOGLE_CLIENT_ID:-}
+      Email__Provider: ${EMAIL_PROVIDER:-}
+      Email__AzureCommunicationServices__ConnectionString: ${EMAIL_ACS_CONNECTION_STRING:-}
+      Email__FromAddress: ${EMAIL_FROM_ADDRESS:-}
+      Email__FromName: ${EMAIL_FROM_NAME:-Personal Finance Tracker}
+      App__BaseUrl: ${APP_BASE_URL:-http://localhost:5173}
       Cors__AllowedOrigins__0: http://localhost:5173
       Cors__AllowedOrigins__1: http://127.0.0.1:5173
       DemoSeed__Enabled: ${DEMO_SEED_ENABLED:-true}

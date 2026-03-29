@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using PersonalFinanceTracker.Application.DTOs.Auth;
+using PersonalFinanceTracker.Application.Interfaces;
 using PersonalFinanceTracker.Infrastructure.Data;
 using PersonalFinanceTracker.Infrastructure.Repositories;
 
@@ -27,6 +28,9 @@ public class AuthServiceTests
 
         var resetToken = await service.ForgotPasswordAsync(new ForgotPasswordRequest(email));
         resetToken.Should().NotBeNullOrWhiteSpace();
+        CapturingEmailSender.SentMessages.Should().ContainSingle();
+        CapturingEmailSender.SentMessages[0].ToAddress.Should().Be(email);
+        CapturingEmailSender.SentMessages[0].PlainTextBody.Should().Contain(Uri.EscapeDataString(resetToken!));
 
         await service.ResetPasswordAsync(new ResetPasswordRequest(email, resetToken!, updatedPassword));
 
@@ -71,15 +75,30 @@ public class AuthServiceTests
 
     private static AuthService CreateAuthService(AppDbContext dbContext, IDictionary<string, string?> settings)
     {
+        CapturingEmailSender.Reset();
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>(settings)
             {
+                ["App:BaseUrl"] = "https://example.test",
                 ["Jwt:Key"] = "ChangeThisInProduction_AtLeast32Chars",
                 ["Jwt:Issuer"] = "PersonalFinanceTracker",
                 ["Jwt:Audience"] = "PersonalFinanceTrackerClients"
             })
             .Build();
 
-        return new AuthService(dbContext, configuration);
+        return new AuthService(dbContext, configuration, new CapturingEmailSender());
+    }
+
+    private sealed class CapturingEmailSender : IEmailSender
+    {
+        public static List<AppEmailMessage> SentMessages { get; } = [];
+
+        public Task SendAsync(AppEmailMessage message, CancellationToken ct = default)
+        {
+            SentMessages.Add(message);
+            return Task.CompletedTask;
+        }
+
+        public static void Reset() => SentMessages.Clear();
     }
 }

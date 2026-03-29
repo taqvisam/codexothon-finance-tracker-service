@@ -40,6 +40,7 @@ builder.Services.AddHealthChecks()
     .AddDbContextCheck<AppDbContext>("database")
     .AddCheck<AuthSchemaHealthCheck>("authSchema")
     .AddCheck<AccountSchemaHealthCheck>("accountSchema")
+    .AddCheck<EmailHealthCheck>("email")
     .AddCheck<GoogleOAuthHealthCheck>("googleAuth");
 builder.Services.AddSwaggerGen(options =>
 {
@@ -330,6 +331,7 @@ app.MapHealthChecks("/health", new HealthCheckOptions
                 database = ReadStatus(report, "database"),
                 authSchema = ReadStatus(report, "authSchema"),
                 accountSchema = ReadStatus(report, "accountSchema"),
+                email = ReadStatus(report, "email"),
                 googleAuth = ReadStatus(report, "googleAuth")
             },
             details = new
@@ -337,6 +339,7 @@ app.MapHealthChecks("/health", new HealthCheckOptions
                 database = ReadDetails(report, "database"),
                 authSchema = ReadDetails(report, "authSchema"),
                 accountSchema = ReadDetails(report, "accountSchema"),
+                email = ReadDetails(report, "email"),
                 googleAuth = ReadDetails(report, "googleAuth")
             }
         };
