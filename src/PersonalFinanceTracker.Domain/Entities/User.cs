@@ -16,6 +16,7 @@ public class User
     public bool IsSoftDeleted { get; set; }
     public DateTime? SoftDeletedAt { get; set; }
     public bool ShowWelcomeBackMessage { get; set; }
+    public DateTime? OnboardingWorkbookEmailSentAt { get; set; }
 
     public ICollection<Account> Accounts { get; set; } = new List<Account>();
     public ICollection<Category> Categories { get; set; } = new List<Category>();

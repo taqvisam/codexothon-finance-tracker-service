@@ -20,7 +20,8 @@ public record AuthResponse(
     string Email,
     string DisplayName,
     string? ProfileImageUrl,
-    bool ShowWelcomeBackMessage);
+    bool ShowWelcomeBackMessage,
+    bool ShowOnboardingWorkbookEmailMessage);
 
 public record UserProfileResponse(
     string Email,

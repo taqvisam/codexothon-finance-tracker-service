@@ -31,6 +31,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.PhoneNumber).HasMaxLength(30);
             e.Property(x => x.ProfileImageUrl);
             e.Property(x => x.IsSoftDeleted).HasDefaultValue(false);
+            e.Property(x => x.OnboardingWorkbookEmailSentAt);
         });
 
         modelBuilder.Entity<Account>(e =>

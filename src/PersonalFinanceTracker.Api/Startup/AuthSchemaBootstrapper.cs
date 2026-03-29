@@ -17,7 +17,8 @@ public static class AuthSchemaBootstrapper
         {
             """ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "IsSoftDeleted" boolean NOT NULL DEFAULT FALSE;""",
             """ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "SoftDeletedAt" timestamp with time zone NULL;""",
-            """ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "ShowWelcomeBackMessage" boolean NOT NULL DEFAULT FALSE;"""
+            """ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "ShowWelcomeBackMessage" boolean NOT NULL DEFAULT FALSE;""",
+            """ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "OnboardingWorkbookEmailSentAt" timestamp with time zone NULL;"""
         };
 
         foreach (var command in commands)

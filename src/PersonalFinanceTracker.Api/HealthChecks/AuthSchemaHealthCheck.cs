@@ -18,7 +18,8 @@ public sealed class AuthSchemaHealthCheck(AppDbContext dbContext) : IHealthCheck
                     user.Id,
                     user.Email,
                     user.IsSoftDeleted,
-                    user.ShowWelcomeBackMessage
+                    user.ShowWelcomeBackMessage,
+                    user.OnboardingWorkbookEmailSentAt
                 })
                 .Take(1)
                 .ToListAsync(cancellationToken);

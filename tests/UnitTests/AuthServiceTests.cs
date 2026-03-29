@@ -24,19 +24,23 @@ public class AuthServiceTests
         const string initialPassword = "Initial@123";
         const string updatedPassword = "Updated@123";
 
-        await service.RegisterAsync(new RegisterRequest(email, initialPassword, "Reset Flow Test"));
+        var registerAuth = await service.RegisterAsync(new RegisterRequest(email, initialPassword, "Reset Flow Test"));
+        registerAuth.ShowOnboardingWorkbookEmailMessage.Should().BeTrue();
 
         var resetToken = await service.ForgotPasswordAsync(new ForgotPasswordRequest(email));
         resetToken.Should().NotBeNullOrWhiteSpace();
-        CapturingEmailSender.SentMessages.Should().ContainSingle();
+        CapturingEmailSender.SentMessages.Should().HaveCount(2);
         CapturingEmailSender.SentMessages[0].ToAddress.Should().Be(email);
-        CapturingEmailSender.SentMessages[0].PlainTextBody.Should().Contain(Uri.EscapeDataString(resetToken!));
+        CapturingEmailSender.SentMessages[0].Subject.Should().Contain("onboarding sample");
+        CapturingEmailSender.SentMessages[1].ToAddress.Should().Be(email);
+        CapturingEmailSender.SentMessages[1].PlainTextBody.Should().Contain(Uri.EscapeDataString(resetToken!));
 
         await service.ResetPasswordAsync(new ResetPasswordRequest(email, resetToken!, updatedPassword));
 
         var auth = await service.LoginAsync(new LoginRequest(email, updatedPassword));
         auth.Email.Should().Be(email);
         auth.AccessToken.Should().NotBeNullOrWhiteSpace();
+        auth.ShowOnboardingWorkbookEmailMessage.Should().BeTrue();
     }
 
     [Fact]

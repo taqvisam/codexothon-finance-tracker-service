@@ -47,8 +47,9 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         dbContext.Users.Add(user);
         AddDefaultCategories(user.Id);
         await dbContext.SaveChangesAsync(ct);
+        var showOnboardingWorkbookEmailMessage = await EnsureOnboardingWorkbookEmailAsync(user, ct);
 
-        return await BuildAuthResponseAsync(user, ct);
+        return await BuildAuthResponseAsync(user, ct, showOnboardingWorkbookEmailMessage);
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -80,7 +81,8 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         }
 
         ReactivateIfNeeded(user);
-        return await BuildAuthResponseAsync(user, ct);
+        var showOnboardingWorkbookEmailMessage = await EnsureOnboardingWorkbookEmailAsync(user, ct);
+        return await BuildAuthResponseAsync(user, ct, showOnboardingWorkbookEmailMessage);
     }
 
     public async Task<AuthResponse> RefreshAsync(RefreshRequest request, CancellationToken ct = default)
@@ -112,7 +114,8 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         }
 
         ReactivateIfNeeded(user);
-        return await BuildAuthResponseAsync(user, ct);
+        var showOnboardingWorkbookEmailMessage = await EnsureOnboardingWorkbookEmailAsync(user, ct);
+        return await BuildAuthResponseAsync(user, ct, showOnboardingWorkbookEmailMessage);
     }
 
     public async Task LogoutAsync(Guid userId, CancellationToken ct = default)
@@ -311,7 +314,10 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         await dbContext.SaveChangesAsync(ct);
     }
 
-    private async Task<AuthResponse> BuildAuthResponseAsync(User user, CancellationToken ct)
+    private async Task<AuthResponse> BuildAuthResponseAsync(
+        User user,
+        CancellationToken ct,
+        bool? showOnboardingWorkbookEmailMessageOverride = null)
     {
         var displayName = NormalizeDisplayName(user);
         var expires = DateTime.UtcNow.AddHours(1);
@@ -319,6 +325,9 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         var refreshSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
         var refreshToken = $"{user.Id:N}.{refreshSecret}";
         var showWelcomeBackMessage = user.ShowWelcomeBackMessage;
+        var showOnboardingWorkbookEmailMessage = showOnboardingWorkbookEmailMessageOverride
+            ?? (user.OnboardingWorkbookEmailSentAt.HasValue
+                && !await dbContext.Accounts.AnyAsync(account => account.UserId == user.Id, ct));
 
         user.DisplayName = displayName;
         user.RefreshTokenHash = BCrypt.Net.BCrypt.HashPassword(refreshToken);
@@ -326,7 +335,15 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         user.ShowWelcomeBackMessage = false;
         await dbContext.SaveChangesAsync(ct);
 
-        return new AuthResponse(accessToken, refreshToken, expires, user.Email, displayName, user.ProfileImageUrl, showWelcomeBackMessage);
+        return new AuthResponse(
+            accessToken,
+            refreshToken,
+            expires,
+            user.Email,
+            displayName,
+            user.ProfileImageUrl,
+            showWelcomeBackMessage,
+            showOnboardingWorkbookEmailMessage);
     }
 
     private string CreateJwt(User user, string displayName, DateTime expires)
@@ -459,5 +476,59 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         var encodedEmail = Uri.EscapeDataString(email);
         var encodedToken = Uri.EscapeDataString(token);
         return $"{baseUrl}/reset-password?email={encodedEmail}&token={encodedToken}";
+    }
+
+    private async Task<bool> EnsureOnboardingWorkbookEmailAsync(User user, CancellationToken ct)
+    {
+        var hasAccounts = await dbContext.Accounts.AnyAsync(account => account.UserId == user.Id, ct);
+        if (hasAccounts || user.OnboardingWorkbookEmailSentAt.HasValue)
+        {
+            return !hasAccounts && user.OnboardingWorkbookEmailSentAt.HasValue;
+        }
+
+        try
+        {
+            var workbookLink = BuildOnboardingWorkbookLink();
+            await emailSender.SendAsync(
+                new AppEmailMessage(
+                    user.Email,
+                    "Your onboarding sample workbook is ready",
+                    $"We have sent your onboarding sample worksheet. Download it here: {workbookLink}",
+                    $$"""
+                    <html>
+                      <body style="font-family:Segoe UI,Arial,sans-serif;color:#1f2937;">
+                        <h2 style="margin-bottom:12px;">Your onboarding sample worksheet is ready</h2>
+                        <p>We have prepared a sample onboarding workbook to help you populate accounts, budgets, goals, recurring items, rules, and transactions quickly.</p>
+                        <p>
+                          <a href="{{workbookLink}}" style="display:inline-block;padding:12px 18px;background:#2ea05f;color:#ffffff;text-decoration:none;border-radius:8px;">
+                            Download sample workbook
+                          </a>
+                        </p>
+                        <p>You can also use the same workbook from the onboarding page if you prefer downloading it there.</p>
+                      </body>
+                    </html>
+                    """,
+                    user.DisplayName),
+                ct);
+            user.OnboardingWorkbookEmailSentAt = DateTime.UtcNow;
+            await dbContext.SaveChangesAsync(ct);
+            return true;
+        }
+        catch
+        {
+            ct.ThrowIfCancellationRequested();
+            return false;
+        }
+    }
+
+    private string BuildOnboardingWorkbookLink()
+    {
+        var baseUrl = configuration["App:BaseUrl"]?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            throw new AppException("Application base URL is not configured for email links.", 500);
+        }
+
+        return $"{baseUrl}/sample-onboarding-import-v2.xlsx";
     }
 }
