@@ -66,6 +66,10 @@ public class AuthServiceTests
         auth.DisplayName.Should().Be("OAuth Test User");
         auth.AccessToken.Should().NotBeNullOrWhiteSpace();
         auth.RefreshToken.Should().NotBeNullOrWhiteSpace();
+        auth.ShowOnboardingWorkbookEmailMessage.Should().BeTrue();
+        CapturingEmailSender.SentMessages.Should().ContainSingle();
+        CapturingEmailSender.SentMessages[0].Subject.Should().Contain("onboarding sample");
+        CapturingEmailSender.SentMessages[0].Attachments.Should().ContainSingle();
 
         var user = await dbContext.Users.SingleAsync(x => x.Email == email);
         user.ProfileImageUrl.Should().BeNull();

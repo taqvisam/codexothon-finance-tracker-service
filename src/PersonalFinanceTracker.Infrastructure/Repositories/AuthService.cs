@@ -197,7 +197,8 @@ public class AuthService(AppDbContext dbContext, IConfiguration configuration, I
         }
 
         ReactivateIfNeeded(user);
-        return await BuildAuthResponseAsync(user, ct);
+        var showOnboardingWorkbookEmailMessage = await EnsureOnboardingWorkbookEmailAsync(user, ct);
+        return await BuildAuthResponseAsync(user, ct, showOnboardingWorkbookEmailMessage);
     }
 
     public async Task<string?> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default)
