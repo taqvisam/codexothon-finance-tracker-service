@@ -47,6 +47,32 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task ResetPassword_Should_Accept_UrlEncoded_Token_From_Email_Link()
+    {
+        await using var dbContext = CreateDbContext();
+        var service = CreateAuthService(dbContext, new Dictionary<string, string?>
+        {
+            ["Auth:ExposeResetTokenForDemo"] = "true",
+            ["OAuth:AllowInsecureTestMode"] = "true"
+        });
+
+        var email = $"encoded.{Guid.NewGuid():N}@example.com";
+        const string initialPassword = "Initial@123";
+        const string updatedPassword = "Updated@123";
+
+        await service.RegisterAsync(new RegisterRequest(email, initialPassword, "Encoded Reset"));
+        var resetToken = await service.ForgotPasswordAsync(new ForgotPasswordRequest(email));
+        resetToken.Should().NotBeNullOrWhiteSpace();
+
+        var encodedToken = Uri.EscapeDataString(resetToken!);
+        await service.ResetPasswordAsync(new ResetPasswordRequest(email, encodedToken, updatedPassword));
+
+        var auth = await service.LoginAsync(new LoginRequest(email, updatedPassword));
+        auth.Email.Should().Be(email);
+        auth.AccessToken.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
     public async Task OAuth_Should_Login_In_Insecure_Test_Mode_Without_IdToken()
     {
         await using var dbContext = CreateDbContext();

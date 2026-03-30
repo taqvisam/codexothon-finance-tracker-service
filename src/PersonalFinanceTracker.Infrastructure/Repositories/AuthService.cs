@@ -268,12 +268,14 @@ public class AuthService(
             throw new AppException("Reset token is required.");
         }
 
+        var normalizedToken = NormalizeResetToken(request.Token);
+
         if (user.ResetPasswordTokenHash is null || user.ResetPasswordTokenExpiresAt is null || user.ResetPasswordTokenExpiresAt < DateTime.UtcNow)
         {
             throw new AppException("Reset token is invalid or expired.", 401);
         }
 
-        if (!BCrypt.Net.BCrypt.Verify(request.Token, user.ResetPasswordTokenHash))
+        if (!BCrypt.Net.BCrypt.Verify(normalizedToken, user.ResetPasswordTokenHash))
         {
             throw new AppException("Reset token is invalid or expired.", 401);
         }
@@ -482,6 +484,17 @@ public class AuthService(
         var encodedEmail = Uri.EscapeDataString(email);
         var encodedToken = Uri.EscapeDataString(token);
         return $"{baseUrl}/reset-password?email={encodedEmail}&token={encodedToken}";
+    }
+
+    private static string NormalizeResetToken(string token)
+    {
+        var normalized = token.Trim();
+        if (normalized.Contains('%'))
+        {
+            normalized = Uri.UnescapeDataString(normalized);
+        }
+
+        return normalized.Replace(' ', '+');
     }
 
     private async Task<bool> EnsureOnboardingWorkbookEmailAsync(User user, CancellationToken ct)
